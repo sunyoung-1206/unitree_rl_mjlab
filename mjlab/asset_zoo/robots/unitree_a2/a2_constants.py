@@ -1,4 +1,4 @@
-"""Unitree Go2 constants."""
+"""Unitree A2 constants."""
 
 from pathlib import Path
 
@@ -15,20 +15,20 @@ from mjlab.utils.spec_config import CollisionCfg
 # MJCF and assets.
 ##
 
-GO2_XML: Path = (
-  MJLAB_SRC_PATH / "asset_zoo" / "robots" / "unitree_go2" / "xmls" / "go2.xml"
+A2_XML: Path = (
+  MJLAB_SRC_PATH / "asset_zoo" / "robots" / "unitree_a2" / "xmls" / "a2.xml"
 )
-assert GO2_XML.exists()
+assert A2_XML.exists()
 
 
 def get_assets(meshdir: str) -> dict[str, bytes]:
   assets: dict[str, bytes] = {}
-  update_assets(assets, GO2_XML.parent / "assets", meshdir)
+  update_assets(assets, A2_XML.parent / "assets", meshdir)
   return assets
 
 
 def get_spec() -> mujoco.MjSpec:
-  spec = mujoco.MjSpec.from_file(str(GO2_XML))
+  spec = mujoco.MjSpec.from_file(str(A2_XML))
   spec.assets = get_assets(spec.meshdir)
   return spec
 
@@ -37,32 +37,32 @@ def get_spec() -> mujoco.MjSpec:
 # Actuator config.
 ##
 
-GO2_ACTUATOR_HIP = BuiltinPositionActuatorCfg(
+A2_ACTUATOR_HIP = BuiltinPositionActuatorCfg(
   target_names_expr=(
     ".*hip_.*",
   ),
-  stiffness=20.0,
-  damping=1.0,
-  effort_limit=23.5,
-  armature=0.01,
+  stiffness=100.0,
+  damping=4.0,
+  effort_limit=120,
+  armature=0.03,
 )
-GO2_ACTUATOR_THIGH = BuiltinPositionActuatorCfg(
+A2_ACTUATOR_THIGH = BuiltinPositionActuatorCfg(
   target_names_expr=(
     ".*thigh_.*",
   ),
-  stiffness=20.0,
-  damping=1.0,
-  effort_limit=23.5,
-  armature=0.01,
+  stiffness=100.0,
+  damping=4.0,
+  effort_limit=120,
+  armature=0.03,
 )
-GO2_ACTUATOR_CALF = BuiltinPositionActuatorCfg(
+A2_ACTUATOR_CALF = BuiltinPositionActuatorCfg(
   target_names_expr=(
     ".*calf_.*",
   ),
-  stiffness=40.0,
-  damping=2.0,
-  effort_limit=45,
-  armature=0.02,
+  stiffness=150.0,
+  damping=6.0,
+  effort_limit=180,
+  armature=0.03,
 )
 
 ##
@@ -71,7 +71,7 @@ GO2_ACTUATOR_CALF = BuiltinPositionActuatorCfg(
 
 
 INIT_STATE = EntityCfg.InitialStateCfg(
-  pos=(0.0, 0.0, 0.3),
+  pos=(0.0, 0.0, 0.4),
   joint_pos={
     ".*thigh_joint": 0.9,
     ".*calf_joint": -1.8,
@@ -115,18 +115,18 @@ FULL_COLLISION = CollisionCfg(
 # Final config.
 ##
 
-GO2_ARTICULATION = EntityArticulationInfoCfg(
+A2_ARTICULATION = EntityArticulationInfoCfg(
   actuators=(
-    GO2_ACTUATOR_HIP,
-    GO2_ACTUATOR_THIGH,
-    GO2_ACTUATOR_CALF,
+    A2_ACTUATOR_HIP,
+    A2_ACTUATOR_THIGH,
+    A2_ACTUATOR_CALF,
   ),
   soft_joint_pos_limit_factor=0.9,
 )
 
 
-def get_go2_robot_cfg() -> EntityCfg:
-  """Get a fresh Go2 robot configuration instance.
+def get_a2_robot_cfg() -> EntityCfg:
+  """Get a fresh A2 robot configuration instance.
 
   Returns a new EntityCfg instance each time to avoid mutation issues when
   the config is shared across multiple places.
@@ -135,7 +135,7 @@ def get_go2_robot_cfg() -> EntityCfg:
     init_state=INIT_STATE,
     collisions=(FULL_COLLISION,),
     spec_fn=get_spec,
-    articulation=GO2_ARTICULATION,
+    articulation=A2_ARTICULATION,
   )
 
 if __name__ == "__main__":
@@ -143,6 +143,6 @@ if __name__ == "__main__":
 
   from mjlab.entity.entity import Entity
 
-  robot = Entity(get_go2_robot_cfg())
+  robot = Entity(get_a2_robot_cfg())
 
   viewer.launch(robot.spec.compile())

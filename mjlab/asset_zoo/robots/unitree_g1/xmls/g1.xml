@@ -92,7 +92,6 @@
                 <joint name="left_ankle_pitch_joint" axis="0 1 0" range="-0.87267 0.5236"/>
                 <geom class="visual" mesh="left_ankle_pitch_link"/>
                 <body name="left_ankle_roll_link" pos="0 0 -0.017558">
-                  <site name="left_foot" rgba="1 0 0 1" pos="0.04 0 -0.037"/>
                   <inertial pos="0.026505 0 -0.016425" quat="-0.000481092 0.728482 -0.000618967 0.685065" mass="0.608" diaginertia="0.00167218 0.0016161 0.000217621"/>
                   <joint name="left_ankle_roll_joint" axis="1 0 0" range="-0.2618 0.2618"/>
                   <geom class="visual" material="black" mesh="left_ankle_roll_link"/>
@@ -103,6 +102,7 @@
                   <geom name="left_foot5_collision" class="foot_capsule" fromto="-0.052 0.01 -0.025 0.13 0.01 -0.025"/>
                   <geom name="left_foot6_collision" class="foot_capsule" fromto="-0.044 0.018 -0.025 0.123 0.018 -0.025"/>
                   <geom name="left_foot7_collision" class="foot_capsule" fromto="0.1 0.026 -0.025 0.05 0.026 -0.025"/>
+                  <site name="left_foot" rgba="1 0 0 1" pos="0.04 0 -0.035"/>
                 </body>
               </body>
             </body>
@@ -134,7 +134,6 @@
                 <joint name="right_ankle_pitch_joint" axis="0 1 0" range="-0.87267 0.5236"/>
                 <geom class="visual" mesh="right_ankle_pitch_link"/>
                 <body name="right_ankle_roll_link" pos="0 0 -0.017558">
-                  <site name="right_foot" rgba="1 0 0 1" pos="0.04 0 -0.037"/>
                   <inertial pos="0.026505 0 -0.016425" quat="0.000481092 0.728482 0.000618967 0.685065" mass="0.608" diaginertia="0.00167218 0.0016161 0.000217621"/>
                   <joint name="right_ankle_roll_joint" axis="1 0 0" range="-0.2618 0.2618"/>
                   <geom class="visual" material="black" mesh="right_ankle_roll_link"/>
@@ -145,6 +144,7 @@
                   <geom name="right_foot5_collision" class="foot_capsule" fromto="-0.052 0.01 -0.025 0.13 0.01 -0.025"/>
                   <geom name="right_foot6_collision" class="foot_capsule" fromto="-0.044 0.018 -0.025 0.123 0.018 -0.025"/>
                   <geom name="right_foot7_collision" class="foot_capsule" fromto="0.1 0.026 -0.025 0.05 0.026 -0.025"/>
+                  <site name="right_foot" rgba="1 0 0 1" pos="0.04 0 -0.035"/>
                 </body>
               </body>
             </body>
