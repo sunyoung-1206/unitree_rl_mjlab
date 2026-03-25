@@ -90,7 +90,7 @@ python scripts/csv_to_npz.py \
 确保有可用的npz文件之后，执行以下指令进行训练：
 
 ```bash
-python scripts/train.py Unitree-G1-Tracking --motion_file=src/assets/motions/g1/dance1_subject2.npz --env.scene.num-envs=4096
+python scripts/train.py Unitree-G1-Tracking-No-State-Estimation --motion_file=src/assets/motions/g1/dance1_subject2.npz --env.scene.num-envs=4096
 ```
 
 </div>

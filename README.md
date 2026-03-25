@@ -92,7 +92,7 @@ python scripts/csv_to_npz.py \
 After generating the NPZ file, launch imitation training:
 
 ```bash
-python scripts/train.py Unitree-G1-Tracking --motion_file=src/assets/motions/g1/dance1_subject2.npz --env.scene.num-envs=4096
+python scripts/train.py Unitree-G1-Tracking-No-State-Estimation --motion_file=src/assets/motions/g1/dance1_subject2.npz --env.scene.num-envs=4096
 ```
 
 </div>
