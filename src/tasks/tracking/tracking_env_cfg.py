@@ -305,11 +305,11 @@ def make_tracking_env_cfg() -> ManagerBasedRlEnvCfg:
       nconmax=35,
       njmax=250,
       mujoco=MujocoCfg(
-        timestep=0.005,
+        timestep=0.005 / 45,  # ≈ 0.111ms: 전기 ODE(τ_e≈0.33ms)의 1/3, Euler 안정
         iterations=10,
         ls_iterations=20,
       ),
     ),
-    decimation=4,
+    decimation=4 * 45,  # 180: policy dt = 0.111ms × 180 = 20ms 유지
     episode_length_s=10.0,
   )

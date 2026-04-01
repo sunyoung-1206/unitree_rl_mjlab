@@ -5,7 +5,10 @@ from typing import Literal
 from src.assets.robots import (
   get_go2_robot_cfg,
 )
-from src.assets.robots.unitree_go2.go2_constants import get_go2_electric_robot_cfg
+from src.assets.robots.unitree_go2.go2_constants import (
+  get_go2_electric_robot_cfg,
+  get_go2_native_electric_robot_cfg,
+)
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs import mdp as envs_mdp
 from mjlab.envs.mdp.actions import JointPositionActionCfg
@@ -138,9 +141,30 @@ def unitree_go2_rough_env_cfg(
 
 
 def unitree_go2_flat_electric_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
-  """Go2 flat terrain + 전기모터 ODE 액추에이터."""
+  """Go2 flat terrain + 전기모터 ODE 액추에이터 (Python solver)."""
   cfg = unitree_go2_flat_env_cfg(play=play)
   cfg.scene.entities = {"robot": get_go2_electric_robot_cfg()}
+  return cfg
+
+
+def unitree_go2_flat_native_electric_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
+  """Go2 flat terrain + MuJoCo-native 전기모터 (act/act_dot 통합).
+
+  서브스테핑 구조:
+    Policy dt  = 5ms (200Hz) ← upstream 원본과 동일
+    Physics dt = 0.1ms (dt_sub)
+    decimation = 50    (= substeps)
+
+  원본 base config: timestep=5ms, decimation=4 → policy dt=5ms.
+  여기서는 physics를 0.1ms로 세분화하되 policy dt=5ms는 유지.
+  """
+  cfg = unitree_go2_flat_env_cfg(play=play)
+  cfg.scene.entities = {"robot": get_go2_native_electric_robot_cfg()}
+
+  # Physics sub-stepping: 0.1ms × 50 = 5ms policy step (원본과 동일)
+  cfg.sim.mujoco.timestep = 0.0001   # dt_sub = 0.1ms (< τ_e/3 = 0.11ms)
+  cfg.decimation = 50                 # 50 sub-steps → policy dt = 5ms
+
   return cfg
 
 

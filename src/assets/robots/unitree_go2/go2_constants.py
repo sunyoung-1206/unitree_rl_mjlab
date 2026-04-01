@@ -11,6 +11,7 @@ from mjlab.utils.actuator import ElectricActuator, reflected_inertia
 from mjlab.utils.os import update_assets
 from mjlab.utils.spec_config import CollisionCfg
 from src.assets.robots.unitree_go2.electric_actuator import ElectricMotorActuatorCfg
+from src.assets.robots.unitree_go2.mj_native_electric_actuator import NativeElectricActuatorCfg
 
 ##
 # MJCF and assets.
@@ -172,6 +173,74 @@ GO2_ELECTRIC_ARTICULATION = EntityArticulationInfoCfg(
 )
 
 ##
+# Native electric motor actuator config (MuJoCo act/act_dot 통합)
+# 전류 I를 MuJoCo state (d->act)에 직접 통합
+##
+
+# substeps=50: policy 5ms / dt_sub 0.1ms = 50 서브스텝
+# 첫 서브스텝에서 PD → τ_des → I_des 캐시 (ZOH)
+# 이후 49 서브스텝에서 최신 ω로 전압만 갱신
+
+_SUBSTEPS = 50  # decimation과 동일하게 설정 (0.1ms × 50 = 5ms policy dt)
+
+GO2_NATIVE_ELECTRIC_HIP = NativeElectricActuatorCfg(
+  target_names_expr=(".*hip_.*",),
+  stiffness=20.0,
+  damping=1.0,
+  effort_limit=23.5,
+  saturation_effort=23.5,
+  velocity_limit=30.0,
+  armature=0.01,
+  Kt=0.128,
+  Ke=0.128,
+  R=0.3,
+  L=1e-4,
+  gear_ratio=6.33,
+  substeps=_SUBSTEPS,
+)
+
+GO2_NATIVE_ELECTRIC_THIGH = NativeElectricActuatorCfg(
+  target_names_expr=(".*thigh_.*",),
+  stiffness=20.0,
+  damping=1.0,
+  effort_limit=23.5,
+  saturation_effort=23.5,
+  velocity_limit=30.0,
+  armature=0.01,
+  Kt=0.128,
+  Ke=0.128,
+  R=0.3,
+  L=1e-4,
+  gear_ratio=6.33,
+  substeps=_SUBSTEPS,
+)
+
+GO2_NATIVE_ELECTRIC_CALF = NativeElectricActuatorCfg(
+  target_names_expr=(".*calf_.*",),
+  stiffness=40.0,
+  damping=2.0,
+  effort_limit=45.0,
+  saturation_effort=45.0,
+  velocity_limit=30.0,
+  armature=0.02,
+  Kt=0.128,
+  Ke=0.128,
+  R=0.3,
+  L=1e-4,
+  gear_ratio=6.33,
+  substeps=_SUBSTEPS,
+)
+
+GO2_NATIVE_ELECTRIC_ARTICULATION = EntityArticulationInfoCfg(
+  actuators=(
+    GO2_NATIVE_ELECTRIC_HIP,
+    GO2_NATIVE_ELECTRIC_THIGH,
+    GO2_NATIVE_ELECTRIC_CALF,
+  ),
+  soft_joint_pos_limit_factor=0.9,
+)
+
+##
 # Final config.
 ##
 
@@ -209,6 +278,20 @@ def get_go2_electric_robot_cfg() -> EntityCfg:
     collisions=(FULL_COLLISION,),
     spec_fn=get_spec,
     articulation=GO2_ELECTRIC_ARTICULATION,
+  )
+
+def get_go2_native_electric_robot_cfg() -> EntityCfg:
+  """Go2 MuJoCo-native 전기모터 버전.
+
+  전류 I를 MuJoCo의 act state에 통합.
+  MuJoCo implicit solver가 전기-기계 연립 시스템의
+  ∂(act_dot)/∂(act) = -R/L 를 해석적으로 처리.
+  """
+  return EntityCfg(
+    init_state=INIT_STATE,
+    collisions=(FULL_COLLISION,),
+    spec_fn=get_spec,
+    articulation=GO2_NATIVE_ELECTRIC_ARTICULATION,
   )
 
 
