@@ -1,5 +1,10 @@
 *.egg-info
 .idea
+__pycache__/
+*.pyc
+*.pyo
+motor_tracking/
+motor_tracking.png
 outputs
 logs
 wandb

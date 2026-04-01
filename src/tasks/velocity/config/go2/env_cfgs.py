@@ -5,6 +5,7 @@ from typing import Literal
 from src.assets.robots import (
   get_go2_robot_cfg,
 )
+from src.assets.robots.unitree_go2.go2_constants import get_go2_electric_robot_cfg
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs import mdp as envs_mdp
 from mjlab.envs.mdp.actions import JointPositionActionCfg
@@ -133,6 +134,13 @@ def unitree_go2_rough_env_cfg(
         cfg.scene.terrain.terrain_generator.num_rows = 5
         cfg.scene.terrain.terrain_generator.border_width = 10.0
 
+  return cfg
+
+
+def unitree_go2_flat_electric_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
+  """Go2 flat terrain + 전기모터 ODE 액추에이터."""
+  cfg = unitree_go2_flat_env_cfg(play=play)
+  cfg.scene.entities = {"robot": get_go2_electric_robot_cfg()}
   return cfg
 
 

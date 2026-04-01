@@ -10,6 +10,7 @@ from mjlab.entity import EntityArticulationInfoCfg, EntityCfg
 from mjlab.utils.actuator import ElectricActuator, reflected_inertia
 from mjlab.utils.os import update_assets
 from mjlab.utils.spec_config import CollisionCfg
+from src.assets.robots.unitree_go2.electric_actuator import ElectricMotorActuatorCfg
 
 ##
 # MJCF and assets.
@@ -112,6 +113,65 @@ FULL_COLLISION = CollisionCfg(
 )
 
 ##
+# Electric motor actuator config (PD + 전류-토크 ODE)
+# play_mujoco.py ElectricMotorState와 동일한 파라미터
+##
+
+GO2_ELECTRIC_HIP = ElectricMotorActuatorCfg(
+  target_names_expr=(".*hip_.*",),
+  stiffness=20.0,
+  damping=1.0,
+  effort_limit=23.5,
+  saturation_effort=23.5,
+  velocity_limit=30.0,
+  armature=0.01,
+  Kt=0.128,
+  Ke=0.128,
+  R=0.3,
+  L=1e-4,
+  gear_ratio=6.33,
+)
+
+GO2_ELECTRIC_THIGH = ElectricMotorActuatorCfg(
+  target_names_expr=(".*thigh_.*",),
+  stiffness=20.0,
+  damping=1.0,
+  effort_limit=23.5,
+  saturation_effort=23.5,
+  velocity_limit=30.0,
+  armature=0.01,
+  Kt=0.128,
+  Ke=0.128,
+  R=0.3,
+  L=1e-4,
+  gear_ratio=6.33,
+)
+
+GO2_ELECTRIC_CALF = ElectricMotorActuatorCfg(
+  target_names_expr=(".*calf_.*",),
+  stiffness=40.0,
+  damping=2.0,
+  effort_limit=45.0,
+  saturation_effort=45.0,
+  velocity_limit=30.0,
+  armature=0.02,
+  Kt=0.128,
+  Ke=0.128,
+  R=0.3,
+  L=1e-4,
+  gear_ratio=6.33,
+)
+
+GO2_ELECTRIC_ARTICULATION = EntityArticulationInfoCfg(
+  actuators=(
+    GO2_ELECTRIC_HIP,
+    GO2_ELECTRIC_THIGH,
+    GO2_ELECTRIC_CALF,
+  ),
+  soft_joint_pos_limit_factor=0.9,
+)
+
+##
 # Final config.
 ##
 
@@ -137,6 +197,20 @@ def get_go2_robot_cfg() -> EntityCfg:
     spec_fn=get_spec,
     articulation=GO2_ARTICULATION,
   )
+
+def get_go2_electric_robot_cfg() -> EntityCfg:
+  """Go2 전기모터 ODE 액추에이터 버전.
+
+  기본 PD 학습 정책과 동일한 구조이지만, 액추에이터가
+  전류-토크 방정식(dI/dt)을 통해 토크를 출력함.
+  """
+  return EntityCfg(
+    init_state=INIT_STATE,
+    collisions=(FULL_COLLISION,),
+    spec_fn=get_spec,
+    articulation=GO2_ELECTRIC_ARTICULATION,
+  )
+
 
 if __name__ == "__main__":
   import mujoco.viewer as viewer

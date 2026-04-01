@@ -35,8 +35,47 @@ class PlayConfig:
   no_terminations: bool = False
   """Disable all termination conditions (useful for viewing motions with dummy agents)."""
 
+  # 고정 속도 명령 (지정 시 랜덤 resampling 비활성화)
+  vx: float | None = None
+  """전진/후진 선속도 명령 [m/s]. 미지정 시 env 설정 범위에서 랜덤 샘플링."""
+  vy: float | None = None
+  """좌우 선속도 명령 [m/s]. 미지정 시 env 설정 범위에서 랜덤 샘플링."""
+  wz: float | None = None
+  """요(yaw) 각속도 명령 [rad/s]. 미지정 시 env 설정 범위에서 랜덤 샘플링."""
+
+  # 수집할 스텝 수 (지정 시 해당 스텝만큼 실행 후 자동 종료)
+  num_steps: int | None = None
+  """실행할 policy step 수. 미지정 시 창을 닫을 때까지 무한 실행."""
+
   # Internal flag used by demo script.
   _demo_mode: tyro.conf.Suppress[bool] = False
+
+
+def _apply_fixed_velocity(env, cfg: PlayConfig, device: str) -> None:
+  """--vx/--vy/--wz로 지정된 값을 twist 커맨드에 고정하고 resampling을 비활성화."""
+  from mjlab.tasks.velocity.mdp.velocity_command import UniformVelocityCommand
+
+  try:
+    term = env.command_manager.get_term("twist")
+  except Exception:
+    print("[WARN] 'twist' 커맨드 term을 찾을 수 없어 --vx/--vy/--wz 무시됨")
+    return
+
+  if not isinstance(term, UniformVelocityCommand):
+    print("[WARN] 'twist' term이 UniformVelocityCommand가 아님 → 무시됨")
+    return
+
+  vx = cfg.vx if cfg.vx is not None else 0.0
+  vy = cfg.vy if cfg.vy is not None else 0.0
+  wz = cfg.wz if cfg.wz is not None else 0.0
+
+  fixed = torch.tensor([[vx, vy, wz]], device=device)
+  term.vel_command_b[:] = fixed
+
+  # resampling 비활성화: 랜덤 샘플링 없이 지정 속도를 유지
+  term._resample_command = lambda env_ids: None
+
+  print(f"[INFO] 고정 속도 명령: vx={vx:+.2f}  vy={vy:+.2f}  wz={wz:+.2f}")
 
 
 def run_play(task_id: str, cfg: PlayConfig):
@@ -121,6 +160,10 @@ def run_play(task_id: str, cfg: PlayConfig):
     )
   env = ManagerBasedRlEnv(cfg=env_cfg, device=device, render_mode=render_mode)
 
+  # 고정 속도 명령 설정 (--vx / --vy / --wz 중 하나라도 지정된 경우)
+  if any(v is not None for v in (cfg.vx, cfg.vy, cfg.wz)):
+    _apply_fixed_velocity(env, cfg, device)
+
   if TRAINED_MODE and cfg.video:
     print("[INFO] Recording videos during play")
     assert log_dir is not None  # log_dir is set in TRAINED_MODE block
@@ -168,9 +211,9 @@ def run_play(task_id: str, cfg: PlayConfig):
     resolved_viewer = cfg.viewer
 
   if resolved_viewer == "native":
-    NativeMujocoViewer(env, policy).run()
+    NativeMujocoViewer(env, policy).run(num_steps=cfg.num_steps)
   elif resolved_viewer == "viser":
-    ViserPlayViewer(env, policy).run()
+    ViserPlayViewer(env, policy).run(num_steps=cfg.num_steps)
   else:
     raise RuntimeError(f"Unsupported viewer backend: {resolved_viewer}")
 
