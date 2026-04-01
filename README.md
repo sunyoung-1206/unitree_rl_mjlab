@@ -1,5 +1,9 @@
 # Unitree RL Mjlab
 
+> **This repository is a fork of [unitreerobotics/unitree_rl_mjlab](https://github.com/unitreerobotics/unitree_rl_mjlab).**
+> See [Fork Modifications](#-fork-modifications) for a summary of changes added in this fork.
+
+---
 
 ## ✳️ Overview
 Unitree RL Mjlab is a reinforcement learning project built upon the
@@ -57,7 +61,7 @@ python scripts/train.py Unitree-G1-Flat \
 - The first argument (e.g., Mjlab-Velocity-Flat-Unitree-G1) specifies the training task.
 Available velocity tracking tasks:
   - Unitree-Go2-Flat
-  - Unitree-Go2-Flat-Electric
+  - Unitree-Go2-Flat-Electric *(added in this fork)*
   - Unitree-G1-Flat
   - Unitree-G1-23Dof-Flat
   - Unitree-H1_2-Flat
@@ -127,16 +131,6 @@ python scripts/play.py Unitree-G1-Flat --checkpoint_file=logs/rsl_rl/g1_velocity
 Motion imitation:
 ```bash
 python scripts/play.py Unitree-G1-Tracking --motion_file=src/assets/motions/g1/dance1_subject2.npz --checkpoint_file=logs/rsl_rl/g1_tracking/2026-xx-xx_xx-xx-xx/model_xx.pt
-```
-
-**Fixed velocity command** (optional): You can lock the velocity command to a fixed value instead of random resampling:
-```bash
-python scripts/play.py Unitree-Go2-Flat --checkpoint_file=... --vx 0.5 --vy 0.0 --wz 0.0
-```
-
-**Limit execution steps** (optional): Automatically stop after a fixed number of policy steps:
-```bash
-python scripts/play.py Unitree-Go2-Flat --checkpoint_file=... --num-steps 200
 ```
 
 **Note**：
@@ -233,28 +227,36 @@ cd deploy/robots/g1/build
 | <img src="doc/gif/go2-velocity-real.gif" width="300"/> | <img src="doc/gif/g1-velocity-real.gif" width="300"/> | <img src="doc/gif/h1_2-velocity-real.gif" width="300"/> | <img src="doc/gif/g1-mimic-real.gif" width="300"/> |
 
 
-## ⚡ Electric Motor Actuator (Go2)
+---
 
-This project adds an **electric motor ODE actuator** for the Unitree Go2, which models the current-torque dynamics of brushless DC motors more accurately than a simple PD controller.
+## 🔧 Fork Modifications
 
-### What's different
+> The following features were added in this fork on top of the original repository.
+
+### 1. Electric Motor Actuator for Go2
+
+Added an **electric motor ODE actuator** that models current-torque dynamics (dI/dt) of brushless DC motors, more physically accurate than a simple PD controller.
+
+**New files:**
+- `src/assets/robots/unitree_go2/electric_actuator.py` — `ElectricMotorActuatorCfg` class
+- `scripts/plot_electric_motor.py` — torque/current tracking visualization
+
+**Modified files:**
+- `src/assets/robots/unitree_go2/go2_constants.py` — added `GO2_ELECTRIC_HIP/THIGH/CALF` configs and `get_go2_electric_robot_cfg()`
+- `src/tasks/velocity/config/go2/env_cfgs.py` — added `unitree_go2_flat_electric_env_cfg()`
+- `src/tasks/velocity/config/go2/__init__.py` — registered `Unitree-Go2-Flat-Electric` task
 
 | | Standard Go2 | Go2 Electric |
 |---|---|---|
 | Task ID | `Unitree-Go2-Flat` | `Unitree-Go2-Flat-Electric` |
 | Actuator model | PD control | PD + current-torque ODE (dI/dt) |
-| Key files | `go2_constants.py` | `go2_constants.py`, `electric_actuator.py` |
 
-### Training with electric motor
-
+Training:
 ```bash
 python scripts/train.py Unitree-Go2-Flat-Electric --env.scene.num-envs=4096
 ```
 
-### Visualizing motor tracking
-
-After training, you can plot torque and current tracking performance:
-
+Visualizing motor tracking after training:
 ```bash
 python scripts/plot_electric_motor.py Unitree-Go2-Flat-Electric \
     --checkpoint-file logs/rsl_rl/.../model_XXXX.pt \
@@ -262,7 +264,19 @@ python scripts/plot_electric_motor.py Unitree-Go2-Flat-Electric \
     --joints FR_hip_joint,FR_thigh_joint,FR_calf_joint
 ```
 
-This generates graphs comparing `tau_des` vs `tau_applied` and `I_des` vs `I` for each joint.
+### 2. Play Script Improvements
+
+Added two options to `scripts/play.py`:
+
+**Fixed velocity command** — lock `--vx/--vy/--wz` to a constant instead of random resampling:
+```bash
+python scripts/play.py Unitree-Go2-Flat --checkpoint_file=... --vx 0.5 --vy 0.0 --wz 0.0
+```
+
+**Step limit** — auto-stop after N policy steps:
+```bash
+python scripts/play.py Unitree-Go2-Flat --checkpoint_file=... --num-steps 200
+```
 
 ---
 
