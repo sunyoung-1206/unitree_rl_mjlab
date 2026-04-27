@@ -8,10 +8,12 @@ from src.assets.robots import (
 from src.assets.robots.unitree_go2.go2_constants import (
   get_go2_electric_robot_cfg,
   get_go2_native_electric_robot_cfg,
+  get_go2_coupled_electric_robot_cfg,
+  get_go2_methoda_robot_cfg,
 )
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs import mdp as envs_mdp
-from mjlab.envs.mdp.actions import JointPositionActionCfg
+from mjlab.envs.mdp.actions import JointPositionActionCfg, JointVelocityActionCfg
 from mjlab.managers import TerminationTermCfg
 from mjlab.managers.event_manager import EventTermCfg
 from mjlab.sensor import ContactMatch, ContactSensorCfg, RayCastSensorCfg
@@ -164,6 +166,53 @@ def unitree_go2_flat_native_electric_env_cfg(play: bool = False) -> ManagerBased
   # Physics sub-stepping: 0.1ms × 50 = 5ms policy step (원본과 동일)
   cfg.sim.mujoco.timestep = 0.0001   # dt_sub = 0.1ms (< τ_e/3 = 0.11ms)
   cfg.decimation = 50                 # 50 sub-steps → policy dt = 5ms
+
+  return cfg
+
+
+def unitree_go2_flat_coupled_electric_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
+  """Go2 flat terrain + MuJoCo-native coupled 전기모터 (Method A+: filterexact Schur).
+
+  Physics dt = 0.1ms, policy dt = 20ms (decimation=200).
+  """
+  cfg = unitree_go2_flat_env_cfg(play=play)
+  cfg.scene.entities = {"robot": get_go2_coupled_electric_robot_cfg()}
+
+  cfg.sim.mujoco.timestep = 0.0001   # 0.1ms
+  cfg.decimation = 200                # 0.1ms × 200 = 20ms policy dt
+
+  return cfg
+
+
+def unitree_go2_flat_methoda_electric_env_cfg(
+  play: bool = False,
+  use_velocity_action: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """Go2 flat terrain + Method A (implicit Euler Schur + RHS correction).
+
+  Physics dt = 0.1ms, policy dt = 20ms (decimation=200).
+  PD/tau target 재계산 주기 = 5ms → policy dt 안에서 4회 업데이트 (pd_substeps=50).
+  dynprm[3] = 0 → IE coefficients in C code.
+
+  Args:
+    play: play(=eval) 모드 여부.
+    use_velocity_action: True 시 JointVelocity 액션으로 교체.
+  """
+  cfg = unitree_go2_flat_env_cfg(play=play)
+  cfg.scene.entities = {"robot": get_go2_methoda_robot_cfg()}
+
+  cfg.sim.mujoco.timestep = 0.0001   # 0.1ms
+  cfg.decimation = 200                # 0.1ms × 200 = 20ms policy dt
+
+  if use_velocity_action:
+    cfg.actions = {
+      "joint_vel": JointVelocityActionCfg(
+        entity_name="robot",
+        actuator_names=(".*",),
+        scale=5.0,
+        use_default_offset=True,
+      )
+    }
 
   return cfg
 
