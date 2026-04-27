@@ -295,6 +295,94 @@ def get_go2_native_electric_robot_cfg() -> EntityCfg:
   )
 
 
+##
+# Coupled electric motor actuator config (Python callback: dyntype=user)
+# callback에서 dI/dt = (V - R·I - Ke·gr·ω) / L 을 직접 계산
+# filterexact와 달리 back-EMF가 act_dot에 포함되어 물리적으로 정확
+# 단, mujoco_warp (GPU) 미지원 → standard mujoco (CPU) 전용
+##
+
+_COUPLED_SUBSTEPS = 200  # decimation=200 (0.1ms × 200 = 20ms policy dt)
+_PD_RECOMPUTE = 50       # PD 재계산 주기: 5ms / 0.1ms = 50 physics steps
+
+GO2_COUPLED_ELECTRIC_HIP = NativeElectricActuatorCfg(
+  target_names_expr=(".*hip_.*",),
+  stiffness=20.0, damping=1.0, effort_limit=23.5, saturation_effort=23.5,
+  velocity_limit=30.0, armature=0.01,
+  Kt=0.128, Ke=0.128, R=0.3, L=1e-4, gear_ratio=6.33,
+  substeps=_COUPLED_SUBSTEPS, pd_substeps=_PD_RECOMPUTE, use_coupled=True,
+)
+
+GO2_COUPLED_ELECTRIC_THIGH = NativeElectricActuatorCfg(
+  target_names_expr=(".*thigh_.*",),
+  stiffness=20.0, damping=1.0, effort_limit=23.5, saturation_effort=23.5,
+  velocity_limit=30.0, armature=0.01,
+  Kt=0.128, Ke=0.128, R=0.3, L=1e-4, gear_ratio=6.33,
+  substeps=_COUPLED_SUBSTEPS, pd_substeps=_PD_RECOMPUTE, use_coupled=True,
+)
+
+GO2_COUPLED_ELECTRIC_CALF = NativeElectricActuatorCfg(
+  target_names_expr=(".*calf_.*",),
+  stiffness=40.0, damping=2.0, effort_limit=45.0, saturation_effort=45.0,
+  velocity_limit=30.0, armature=0.02,
+  Kt=0.128, Ke=0.128, R=0.3, L=1e-4, gear_ratio=6.33,
+  substeps=_COUPLED_SUBSTEPS, pd_substeps=_PD_RECOMPUTE, use_coupled=True,
+)
+
+GO2_COUPLED_ELECTRIC_ARTICULATION = EntityArticulationInfoCfg(
+  actuators=(
+    GO2_COUPLED_ELECTRIC_HIP,
+    GO2_COUPLED_ELECTRIC_THIGH,
+    GO2_COUPLED_ELECTRIC_CALF,
+  ),
+  soft_joint_pos_limit_factor=0.9,
+)
+
+
+# Method A (IE Schur) — same as coupled but use_filterexact_schur=False (dynprm[3]=0)
+_MA_MOTOR = dict(Kt=0.128, Ke=0.128, R=0.3, L=1e-4, gear_ratio=6.33,
+                 substeps=_COUPLED_SUBSTEPS, pd_substeps=_PD_RECOMPUTE,
+                 use_coupled=True, use_filterexact_schur=False)
+GO2_METHODA_HIP = NativeElectricActuatorCfg(
+  target_names_expr=(".*hip_.*",), stiffness=20.0, damping=1.0,
+  effort_limit=23.5, saturation_effort=23.5, velocity_limit=30.0, armature=0.01, **_MA_MOTOR)
+GO2_METHODA_THIGH = NativeElectricActuatorCfg(
+  target_names_expr=(".*thigh_.*",), stiffness=20.0, damping=1.0,
+  effort_limit=23.5, saturation_effort=23.5, velocity_limit=30.0, armature=0.01, **_MA_MOTOR)
+GO2_METHODA_CALF = NativeElectricActuatorCfg(
+  target_names_expr=(".*calf_.*",), stiffness=40.0, damping=2.0,
+  effort_limit=45.0, saturation_effort=45.0, velocity_limit=30.0, armature=0.02, **_MA_MOTOR)
+GO2_METHODA_ARTICULATION = EntityArticulationInfoCfg(
+  actuators=(GO2_METHODA_HIP, GO2_METHODA_THIGH, GO2_METHODA_CALF),
+  soft_joint_pos_limit_factor=0.9,
+)
+
+
+def get_go2_methoda_robot_cfg() -> EntityCfg:
+  """Go2 Method A (implicit Euler Schur + RHS correction)."""
+  return EntityCfg(
+    init_state=INIT_STATE,
+    collisions=(FULL_COLLISION,),
+    spec_fn=get_spec,
+    articulation=GO2_METHODA_ARTICULATION,
+  )
+
+
+def get_go2_coupled_electric_robot_cfg() -> EntityCfg:
+  """Go2 coupled 전기모터 버전 (Schur complement back-EMF).
+
+  filterexact_coupled dyntype 사용:
+  implicit solver에 dt²·Kt·Ke·gr²/(L·(1+dt/τ))·JᵀJ 항이 추가되어
+  전류 추적 정확도가 크게 향상됨 (Phase 3: 최대 19x).
+  """
+  return EntityCfg(
+    init_state=INIT_STATE,
+    collisions=(FULL_COLLISION,),
+    spec_fn=get_spec,
+    articulation=GO2_COUPLED_ELECTRIC_ARTICULATION,
+  )
+
+
 if __name__ == "__main__":
   import mujoco.viewer as viewer
 

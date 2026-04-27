@@ -1,0 +1,16 @@
+<mujoco>
+  <option timestep="0.0001"/>
+  <worldbody>
+    <body>
+      <joint name="hinge" type="hinge" damping="0" armature="0.01"/>
+      <geom type="cylinder" size="0.05 0.1" mass="0.5"/>
+    </body>
+  </worldbody>
+  <actuator>
+    <general name="motor" joint="hinge"
+             dyntype="filterexact"
+             dynprm="0.000333 0.81024 0.0001"
+             gainprm="0.81024" biasprm="0 0 0"
+             actlimited="true" actrange="-29 29"/>
+  </actuator>
+</mujoco>

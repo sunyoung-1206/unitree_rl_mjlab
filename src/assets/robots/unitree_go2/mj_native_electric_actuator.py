@@ -107,12 +107,26 @@ class NativeElectricActuatorCfg(DcMotorActuatorCfg):
     substeps: int = 1
     """Physics sub-steps per policy step (= decimation).
     1이면 서브스테핑 없음 (매 호출마다 PD 재계산).
-    >1이면 ZOH: 첫 서브스텝에서 τ_des → I_des 캐시,
-    이후 서브스텝에서는 최신 ω로 전압만 갱신."""
+    >1이면 ZOH: pd_substeps마다 PD 재계산,
+    그 사이 서브스텝에서는 최신 ω로 전압만 갱신."""
+
+    pd_substeps: int = 0
+    """PD 재계산 주기 (physics step 단위). 0이면 policy step에서만 PD 계산.
+    예: substeps=200, pd_substeps=50 → policy 20ms, PD 5ms, physics 0.1ms."""
 
     use_callback: bool = False
     """True: dyntype=user (Python callback, standard mujoco only).
     False: dyntype=filterexact (recommended, mujoco_warp compatible)."""
+
+    use_coupled: bool = False
+    """True: dyntype=filterexact_coupled (Schur complement back-EMF coupling).
+    implicit solver에 cross-Jacobian 항을 추가하여 전류 추적 정확도 향상.
+    use_callback=True와 동시 사용 불가."""
+
+    use_filterexact_schur: bool = True
+    """coupled 모드에서 Schur 계수 선택.
+    True:  A+ (filterexact: β = exp(-h/τ))  — dynprm[3] = 1
+    False: A  (implicit Euler: β = 1/(1+h/τ)) — dynprm[3] = 0"""
 
     def build(
         self, entity: Entity, target_ids: list[int], target_names: list[str]
@@ -255,6 +269,22 @@ class NativeElectricActuator(DcMotorActuator):
                 V_max = cfg.R * I_max + cfg.Ke * cfg.gear_ratio * cfg.velocity_limit
                 act.ctrllimited = True
                 act.ctrlrange[:] = np.array([-V_max, V_max])
+            elif cfg.use_coupled:
+                # Strategy D: dyntype=filterexact with dynprm[1,2] for back-EMF coupling
+                # engine detects dynprm[1]>0 && dynprm[2]>0 → activates Schur complement
+                # No enum change needed → ABI compatible with pip-installed bindings
+                act.dyntype = mujoco.mjtDyn.mjDYN_FILTEREXACT
+                act.dynprm[0] = tau_e                       # L/R
+                act.dynprm[1] = cfg.Ke * cfg.gear_ratio     # Ke_plant·gr (demag script may overwrite)
+                act.dynprm[2] = cfg.L                        # L (inductance)
+                act.dynprm[3] = cfg.Ke * cfg.gear_ratio     # Ke_nom·gr — NEVER modified
+                # NOTE: patched mjwarp FILTEREXACT kernel computes
+                #   act_dot += (dynprm[3] - dynprm[1]) * omega / dynprm[2]
+                # Healthy: dynprm[3]==dynprm[1] → correction=0 → vanilla filterexact.
+                # Demag:   inject_demagnetization() sets dynprm[1]=Ke_plant·gr, leaves dynprm[3] nominal.
+                # ctrl = 목표 전류 (PD + back-EMF), 동일한 변환 로직
+                act.ctrllimited = True
+                act.ctrlrange[:] = np.array([-I_max * 2, I_max * 2])
             else:
                 # Approach A: dyntype=filterexact (권장)
                 # act_dot = (ctrl − act) / τ_e
@@ -386,17 +416,26 @@ class NativeElectricActuator(DcMotorActuator):
         cfg = self.cfg
         assert isinstance(cfg, NativeElectricActuatorCfg)
 
-        # ── ①② τ_des → I_des (ZOH: 첫 서브스텝에서만 계산) ─────
-        if cfg.substeps <= 1 or self._sub_idx == 0:
+        # ── ①② τ_des → I_des ─────────────────────────────────────
+        # PD 재계산 조건:
+        #   - substeps <= 1: 매 호출마다
+        #   - sub_idx == 0: policy step 경계 (항상)
+        #   - pd_substeps > 0 and sub_idx % pd_substeps == 0: PD 주기 경계
+        pd_period = cfg.pd_substeps if cfg.pd_substeps > 0 else cfg.substeps
+        recompute_pd = (cfg.substeps <= 1
+                        or self._sub_idx == 0
+                        or (cfg.pd_substeps > 0 and self._sub_idx % pd_period == 0))
+
+        if recompute_pd:
             # PD + DC motor saturation → τ_des
             tau_des = super().compute(cmd)
             I_des = tau_des / self._Ktgr
-            # 서브스테핑 시 캐시 저장
+            # 캐시 저장
             if cfg.substeps > 1:
                 self._I_des_hold = I_des
                 self._tau_des_hold = tau_des
         else:
-            # 서브스텝 1..N-1: 캐시된 I_des 사용 (ZOH)
+            # PD 주기 사이: 캐시된 I_des 사용 (ZOH)
             I_des = self._I_des_hold
             tau_des = self._tau_des_hold
 

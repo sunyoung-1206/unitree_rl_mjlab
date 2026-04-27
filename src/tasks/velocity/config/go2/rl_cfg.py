@@ -1,5 +1,8 @@
 """RL configuration for Unitree Go2 velocity task."""
 
+from dataclasses import replace
+from typing import Literal
+
 from mjlab.rl import (
   RslRlModelCfg,
   RslRlOnPolicyRunnerCfg,
@@ -43,4 +46,27 @@ def unitree_go2_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     save_interval=100,
     num_steps_per_env=24,
     max_iterations=10001,
+  )
+
+
+def unitree_go2_methoda_electric_ppo_runner_cfg(
+  action_type: Literal["position", "velocity"] = "position",
+) -> RslRlOnPolicyRunnerCfg:
+  """MethodA-Electric 전용 러너 설정.
+
+  실험 로그 경로가 action type과 주요 타이밍 하이퍼를 한눈에 보여주도록
+  experiment_name / run_name 을 인코딩.
+
+    experiment_name: "go2_methoda_electric"
+    run_name       : "act-{pos|vel}_pdt20ms_phyDt0p1ms_tauDec4"
+
+  decimation=200 (0.1ms × 200 = 20ms policy dt)이지만,
+  tau 목표 업데이트 주기는 pd_substeps=50 → 20ms 안에서 4회 (= 표기상 tauDec4).
+  """
+  cfg = unitree_go2_ppo_runner_cfg()
+  act_tag = "vel" if action_type == "velocity" else "pos"
+  return replace(
+    cfg,
+    experiment_name="go2_methoda_electric",
+    run_name=f"act-{act_tag}_pdt20ms_phyDt0p1ms_tauDec4",
   )

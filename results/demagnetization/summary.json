@@ -1,0 +1,122 @@
+[
+  {
+    "task": "PD",
+    "demag_factor": 1.0,
+    "episode_return": 63.29374694824219,
+    "mean_reward": 0.06329374760389328,
+    "vel_error_rms": 0.06890622526407242,
+    "mean_survival_steps": 1000.0,
+    "mean_abs_current": 0.0,
+    "mean_abs_torque": 2.9298925399780273
+  },
+  {
+    "task": "PD",
+    "demag_factor": 0.8,
+    "episode_return": 63.31696319580078,
+    "mean_reward": 0.0633169636130333,
+    "vel_error_rms": 0.06856069713830948,
+    "mean_survival_steps": 1000.0,
+    "mean_abs_current": 0.0,
+    "mean_abs_torque": 2.9319674968719482
+  },
+  {
+    "task": "PD",
+    "demag_factor": 0.6,
+    "episode_return": 63.314701080322266,
+    "mean_reward": 0.06331470608711243,
+    "vel_error_rms": 0.06880531460046768,
+    "mean_survival_steps": 1000.0,
+    "mean_abs_current": 0.0,
+    "mean_abs_torque": 3.0180931091308594
+  },
+  {
+    "task": "PD",
+    "demag_factor": 0.4,
+    "episode_return": 63.320343017578125,
+    "mean_reward": 0.0633203387260437,
+    "vel_error_rms": 0.06977767497301102,
+    "mean_survival_steps": 1000.0,
+    "mean_abs_current": 0.0,
+    "mean_abs_torque": 2.9736557006835938
+  },
+  {
+    "task": "Native",
+    "demag_factor": 1.0,
+    "episode_return": 16.183250427246094,
+    "mean_reward": 0.01618324965238571,
+    "vel_error_rms": 0.07138106226921082,
+    "mean_survival_steps": 1000.0,
+    "mean_abs_current": 4.091911315917969,
+    "mean_abs_torque": 3.3154304027557373
+  },
+  {
+    "task": "Native",
+    "demag_factor": 0.8,
+    "episode_return": 15.601212501525879,
+    "mean_reward": 0.015601210296154022,
+    "vel_error_rms": 0.14319492876529694,
+    "mean_survival_steps": 1000.0,
+    "mean_abs_current": 4.971298694610596,
+    "mean_abs_torque": 3.222356081008911
+  },
+  {
+    "task": "Native",
+    "demag_factor": 0.6,
+    "episode_return": 13.13589096069336,
+    "mean_reward": 0.013135889545083046,
+    "vel_error_rms": 0.29780974984169006,
+    "mean_survival_steps": 1000.0,
+    "mean_abs_current": 6.427648544311523,
+    "mean_abs_torque": 3.1247622966766357
+  },
+  {
+    "task": "Native",
+    "demag_factor": 0.4,
+    "episode_return": 11.002126693725586,
+    "mean_reward": 0.011002127081155777,
+    "vel_error_rms": 0.35620877146720886,
+    "mean_survival_steps": 1000.0,
+    "mean_abs_current": 10.18381118774414,
+    "mean_abs_torque": 3.300532579421997
+  },
+  {
+    "task": "Coupled",
+    "demag_factor": 1.0,
+    "episode_return": 16.11549186706543,
+    "mean_reward": 0.016115492209792137,
+    "vel_error_rms": 0.07144150137901306,
+    "mean_survival_steps": 1000.0,
+    "mean_abs_current": 4.16817045211792,
+    "mean_abs_torque": 3.377218723297119
+  },
+  {
+    "task": "Coupled",
+    "demag_factor": 0.8,
+    "episode_return": 15.668964385986328,
+    "mean_reward": 0.01566896215081215,
+    "vel_error_rms": 0.09710583835840225,
+    "mean_survival_steps": 1000.0,
+    "mean_abs_current": 5.406127452850342,
+    "mean_abs_torque": 3.5042083263397217
+  },
+  {
+    "task": "Coupled",
+    "demag_factor": 0.6,
+    "episode_return": 13.70541000366211,
+    "mean_reward": 0.013705410994589329,
+    "vel_error_rms": 0.22860266268253326,
+    "mean_survival_steps": 1000.0,
+    "mean_abs_current": 6.414074897766113,
+    "mean_abs_torque": 3.1181640625
+  },
+  {
+    "task": "Coupled",
+    "demag_factor": 0.4,
+    "episode_return": 8.593276977539062,
+    "mean_reward": 0.008593276143074036,
+    "vel_error_rms": 0.34366166591644287,
+    "mean_survival_steps": 700.03125,
+    "mean_abs_current": 10.271052360534668,
+    "mean_abs_torque": 3.3288066387176514
+  }
+]
