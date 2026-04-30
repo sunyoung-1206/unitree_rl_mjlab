@@ -1,0 +1,142 @@
+diff -urN a/_src/derivative.py b/_src/derivative.py
+--- a/_src/derivative.py	2026-04-27 20:34:51.109760794 +0900
++++ b/_src/derivative.py	2026-04-27 20:34:51.111760845 +0900
+@@ -15,6 +15,7 @@
+ 
+ import warp as wp
+ 
++from mujoco_warp._src.types import MJ_MINVAL
+ from mujoco_warp._src.types import BiasType
+ from mujoco_warp._src.types import Data
+ from mujoco_warp._src.types import DisableBit
+@@ -36,9 +37,11 @@
+   actuator_actadr: wp.array(dtype=int),
+   actuator_actnum: wp.array(dtype=int),
+   actuator_forcelimited: wp.array(dtype=bool),
++  actuator_dynprm: wp.array2d(dtype=vec10f),
+   actuator_gainprm: wp.array2d(dtype=vec10f),
+   actuator_biasprm: wp.array2d(dtype=vec10f),
+   actuator_forcerange: wp.array2d(dtype=wp.vec2),
++  opt_timestep: wp.array(dtype=float),
+   # Data in:
+   act_in: wp.array2d(dtype=float),
+   ctrl_in: wp.array2d(dtype=float),
+@@ -50,6 +53,7 @@
+ 
+   actuator_gainprm_id = worldid % actuator_gainprm.shape[0]
+   actuator_biasprm_id = worldid % actuator_biasprm.shape[0]
++  actuator_dynprm_id = worldid % actuator_dynprm.shape[0]
+ 
+   if actuator_gaintype[actid] == GainType.AFFINE:
+     gain = actuator_gainprm[actuator_gainprm_id, actid][2]
+@@ -61,7 +65,22 @@
+   else:
+     bias = 0.0
+ 
+-  if bias == 0.0 and gain == 0.0:
++  # Method A Schur: -(1-β)·Kt·gr·Ke·gr/R for FILTEREXACT motor coupling
++  # β = 1/(1+h/τ) → 1-β = h/(τ+h)
++  schur = float(0.0)
++  if actuator_dyntype[actid] == DynType.FILTEREXACT:
++    dynprm_act = actuator_dynprm[actuator_dynprm_id, actid]
++    Ke_gr = dynprm_act[1]
++    L_val = dynprm_act[2]
++    if Ke_gr != 0.0 and L_val > MJ_MINVAL:
++      tau_e = wp.max(MJ_MINVAL, dynprm_act[0])
++      Kt_gr = actuator_gainprm[actuator_gainprm_id, actid][0]
++      h_dt = opt_timestep[worldid % opt_timestep.shape[0]]
++      one_minus_beta = h_dt / (tau_e + h_dt)
++      R_val = L_val / tau_e
++      schur = -one_minus_beta * Kt_gr * Ke_gr / R_val
++
++  if bias == 0.0 and gain == 0.0 and schur == 0.0:
+     vel_out[worldid, actid] = 0.0
+     return
+ 
+@@ -73,7 +92,7 @@
+       vel_out[worldid, actid] = 0.0
+       return
+ 
+-  vel = float(bias)
++  vel = float(bias) + schur
+   if actuator_dyntype[actid] != DynType.NONE:
+     if gain != 0.0:
+       act_first = actuator_actadr[actid]
+@@ -254,9 +273,11 @@
+           m.actuator_actadr,
+           m.actuator_actnum,
+           m.actuator_forcelimited,
++          m.actuator_dynprm,
+           m.actuator_gainprm,
+           m.actuator_biasprm,
+           m.actuator_forcerange,
++          m.opt.timestep,
+           d.act,
+           d.ctrl,
+           d.actuator_force,
+diff -urN a/_src/forward.py b/_src/forward.py
+--- a/_src/forward.py	2026-04-27 20:34:51.108760769 +0900
++++ b/_src/forward.py	2026-04-27 20:34:51.110760819 +0900
+@@ -146,7 +146,14 @@
+   # advance actuation
+   if actuator_dyntype == DynType.FILTEREXACT:
+     tau = wp.max(MJ_MINVAL, actuator_dynprm[0])
+-    act = act_in + act_dot_scale * act_dot_in * tau * (1.0 - wp.exp(-opt_timestep / tau))
++    # Motor coupling detection: dynprm[1]=Ke*gr != 0 AND dynprm[2]=L > 0
++    # → Pure Method A integrator: β = 1/(1+h/τ)
++    # Otherwise → vanilla filterexact: β = exp(-h/τ)
++    if actuator_dynprm[1] != 0.0 and actuator_dynprm[2] > MJ_MINVAL:
++      # Method A: act = act + h * act_dot / (1 + h/τ)
++      act = act_in + act_dot_scale * act_dot_in * opt_timestep / (1.0 + opt_timestep / tau)
++    else:
++      act = act_in + act_dot_scale * act_dot_in * tau * (1.0 - wp.exp(-opt_timestep / tau))
+   elif actuator_dyntype == DynType.USER:
+     return act_in
+   else:
+@@ -668,9 +675,23 @@
+ 
+     if dyntype == DynType.INTEGRATOR:
+       act_dot = ctrl
+-    elif dyntype == DynType.FILTER or dyntype == DynType.FILTEREXACT:
++    elif dyntype == DynType.FILTER:
++      # Unchanged vanilla first-order filter: dI/dt = (ctrl - act) / tau.
+       act = act_in[worldid, act_last]
+       act_dot = (ctrl - act) / wp.max(dynprm[0], MJ_MINVAL)
++    elif dyntype == DynType.FILTEREXACT:
++      # Coupled filterexact: standard filter + Ke mismatch correction.
++      #   dI/dt = (ctrl - act) / tau  +  (Ke_nom*gr - Ke_plant*gr) * omega / L
++      # Slots: dynprm[0]=tau=L/R, [1]=Ke_plant*gr, [2]=L, [3]=Ke_nom*gr.
++      # Healthy: dynprm[3]==dynprm[1] -> correction=0 -> vanilla behaviour.
++      act = act_in[worldid, act_last]
++      tau_e = wp.max(dynprm[0], MJ_MINVAL)
++      act_dot = (ctrl - act) / tau_e
++      L_dyn = dynprm[2]
++      if L_dyn > MJ_MINVAL:
++        # omega at step start; ZOH over dt (kernel picks latest actuator_velocity).
++        omega = actuator_velocity_in[worldid, uid]
++        act_dot += (dynprm[3] - dynprm[1]) * omega / L_dyn
+     elif dyntype == DynType.MUSCLE:
+       dynprm = actuator_dynprm[worldid % actuator_dynprm.shape[0], uid]
+       act = act_in[worldid, act_last]
+@@ -731,6 +752,21 @@
+ 
+   force = gain * ctrl_act + bias
+ 
++  # Method A RHS correction (Schur complement RHS):
++  # force currently uses I_old (act_in[act_last]) when not actearly.
++  # Method A predicts I_new = β·I_old + (1-β)·ctrl  with  β = 1/(1+h/τ).
++  # ΔF = gain·(1-β)·(ctrl - I_old).
++  # Active only for FILTEREXACT motor actuators (dynprm[1]≠0 AND dynprm[2]>0).
++  if na and act_first >= 0:
++    if actuator_dyntype[uid] == DynType.FILTEREXACT:
++      dynprm_uid = actuator_dynprm[worldid % actuator_dynprm.shape[0], uid]
++      if dynprm_uid[1] != 0.0 and dynprm_uid[2] > MJ_MINVAL and not actuator_actearly[uid]:
++        tau_e = wp.max(MJ_MINVAL, dynprm_uid[0])
++        h_dt = opt_timestep[worldid % opt_timestep.shape[0]]
++        one_minus_beta = h_dt / (tau_e + h_dt)  # Method A: 1 - 1/(1+h/τ)
++        I_old = act_in[worldid, act_last]
++        force += gain * one_minus_beta * (ctrl - I_old)
++
+   if actuator_forcelimited[uid]:
+     forcerange = actuator_forcerange[worldid % actuator_forcerange.shape[0], uid]
+     force = wp.clamp(force, forcerange[0], forcerange[1])
