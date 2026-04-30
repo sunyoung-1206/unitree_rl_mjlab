@@ -1,0 +1,8 @@
+demag_rerun_schur_trained
+
+cpu에는 schur가 반영되어있었는데 gpu 훈련 코드에 반영되어있지 않았다고 함.(잘 모르겠음)
+여기서부터 A method는 beta=1/(1+h/tau), integrator, schur,force rhs 전부
+기존에는 integrator에는 beta=exp(-h/tau)
+
+Aplus method는 beta=exp(-h/tau)
+
