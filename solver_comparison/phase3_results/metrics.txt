@@ -1,0 +1,145 @@
+================================================================================
+Phase 3: filterexact_coupled Verification Results
+================================================================================
+Inertia: 0.010625 kg·m²
+Motor: R=0.3, L=0.0001, Kt=0.128, Ke=0.128, gr=6.33
+Kt*gr=0.8102400000000001, Ke*gr=0.8102400000000001, tau_e=0.0003333333333333334
+
+
+────────────────────────────────────────────────────────────
+Scenario: step — Step Voltage (8V)
+────────────────────────────────────────────────────────────
+
+  dt = 0.1ms:
+    filterexact: max|ΔI|=4.336455e-01  max|Δω|=8.329221e-02  rms_I=1.435880e-01  rms_ω=3.915339e-02
+    coupled:     max|ΔI|=2.283600e-02  max|Δω|=9.198046e-02  rms_I=7.596111e-03  rms_ω=3.619535e-02
+    ratio (fe/cp): max_I=18.9896  max_ω=0.9055
+
+  dt = 0.5ms:
+    filterexact: max|ΔI|=2.771834e+00  max|Δω|=5.446518e-01  rms_I=9.062725e-01  rms_ω=2.348751e-01
+    coupled:     max|ΔI|=5.635609e-01  max|Δω|=5.446518e-01  rms_I=1.857067e-01  rms_ω=1.993550e-01
+    ratio (fe/cp): max_I=4.9184  max_ω=1.0000
+
+  dt = 1.0ms:
+    filterexact: max|ΔI|=6.655551e+00  max|Δω|=1.334551e+00  rms_I=2.259646e+00  rms_ω=5.826251e-01
+    coupled:     max|ΔI|=2.220904e+00  max|Δω|=1.334551e+00  rms_I=6.957704e-01  rms_ω=4.463020e-01
+    ratio (fe/cp): max_I=2.9968  max_ω=1.0000
+
+  dt = 5.0ms:
+    filterexact: max|ΔI|=2.862126e+01  max|Δω|=1.084339e+01  rms_I=1.807135e+01  rms_ω=7.289931e+00
+    coupled:     max|ΔI|=1.637151e+01  max|Δω|=6.344374e+00  rms_I=7.573848e+00  rms_ω=2.916218e+00
+    ratio (fe/cp): max_I=1.7482  max_ω=1.7091
+
+────────────────────────────────────────────────────────────
+Scenario: sinusoidal — Sinusoidal Voltage (8V, 100Hz)
+────────────────────────────────────────────────────────────
+
+  dt = 0.1ms:
+    filterexact: max|ΔI|=1.021992e+00  max|Δω|=2.207632e-01  rms_I=6.857041e-01  rms_ω=1.402205e-01
+    coupled:     max|ΔI|=8.819643e-01  max|Δω|=2.212369e-01  rms_I=5.997887e-01  rms_ω=1.399781e-01
+    ratio (fe/cp): max_I=1.1588  max_ω=0.9979
+
+  dt = 0.5ms:
+    filterexact: max|ΔI|=7.147146e+00  max|Δω|=1.315924e+00  rms_I=4.415152e+00  rms_ω=8.353676e-01
+    coupled:     max|ΔI|=5.145758e+00  max|Δω|=1.197259e+00  rms_I=3.529755e+00  rms_ω=7.547114e-01
+    ratio (fe/cp): max_I=1.3889  max_ω=1.0991
+
+  dt = 1.0ms:
+    filterexact: max|ΔI|=1.850943e+01  max|Δω|=3.132744e+00  rms_I=1.128380e+01  rms_ω=1.994166e+00
+    coupled:     max|ΔI|=1.228931e+01  max|Δω|=2.565401e+00  rms_I=8.265954e+00  rms_ω=1.629762e+00
+    ratio (fe/cp): max_I=1.5061  max_ω=1.2212
+
+  dt = 5.0ms:
+    filterexact: max|ΔI|=6.351383e+00  max|Δω|=4.302095e+00  rms_I=3.619547e+00  rms_ω=3.079065e+00
+    coupled:     max|ΔI|=6.351383e+00  max|Δω|=4.302095e+00  rms_I=3.619547e+00  rms_ω=3.079065e+00
+    ratio (fe/cp): max_I=1.0000  max_ω=1.0000
+
+────────────────────────────────────────────────────────────
+Scenario: load_change — Step Voltage + Load Change at 10ms
+────────────────────────────────────────────────────────────
+
+  dt = 0.1ms:
+    filterexact: max|ΔI|=4.336455e-01  max|Δω|=8.329221e-02  rms_I=1.438326e-01  rms_ω=3.685991e-02
+    coupled:     max|ΔI|=3.102467e-02  max|Δω|=9.198046e-02  rms_I=1.451564e-02  rms_ω=3.621014e-02
+    ratio (fe/cp): max_I=13.9774  max_ω=0.9055
+
+  dt = 0.5ms:
+    filterexact: max|ΔI|=2.771834e+00  max|Δω|=5.446518e-01  rms_I=9.105729e-01  rms_ω=2.236792e-01
+    coupled:     max|ΔI|=5.635609e-01  max|Δω|=5.446518e-01  rms_I=1.911951e-01  rms_ω=1.995732e-01
+    ratio (fe/cp): max_I=4.9184  max_ω=1.0000
+
+  dt = 1.0ms:
+    filterexact: max|ΔI|=6.655551e+00  max|Δω|=1.334551e+00  rms_I=2.277832e+00  rms_ω=5.623098e-01
+    coupled:     max|ΔI|=2.220904e+00  max|Δω|=1.334551e+00  rms_I=6.970862e-01  rms_ω=4.466265e-01
+    ratio (fe/cp): max_I=2.9968  max_ω=1.0000
+
+  dt = 5.0ms:
+    filterexact: max|ΔI|=2.807580e+01  max|Δω|=1.034887e+01  rms_I=1.798153e+01  rms_ω=6.706031e+00
+    coupled:     max|ΔI|=1.637151e+01  max|Δω|=6.344374e+00  rms_I=7.558006e+00  rms_ω=2.911431e+00
+    ratio (fe/cp): max_I=1.7149  max_ω=1.6312
+
+────────────────────────────────────────────────────────────
+Scenario: reversal — Voltage Reversal at 10ms (KEY TEST)
+────────────────────────────────────────────────────────────
+
+  dt = 0.1ms:
+    filterexact: max|ΔI|=1.452604e+01  max|Δω|=2.043550e+00  rms_I=4.110456e+00  rms_ω=9.042839e-01
+    coupled:     max|ΔI|=1.452604e+01  max|Δω|=1.989930e+00  rms_I=4.032637e+00  rms_ω=8.960760e-01
+    ratio (fe/cp): max_I=1.0000  max_ω=1.0269
+
+  dt = 0.5ms:
+    filterexact: max|ΔI|=1.452604e+01  max|Δω|=3.014543e+00  rms_I=4.735453e+00  rms_ω=1.373044e+00
+    coupled:     max|ΔI|=1.452604e+01  max|Δω|=2.722562e+00  rms_I=4.152055e+00  rms_ω=1.281721e+00
+    ratio (fe/cp): max_I=1.0000  max_ω=1.1072
+
+  dt = 1.0ms:
+    filterexact: max|ΔI|=1.452604e+01  max|Δω|=4.551636e+00  rms_I=6.347977e+00  rms_ω=2.212156e+00
+    coupled:     max|ΔI|=1.452604e+01  max|Δω|=3.940702e+00  rms_I=4.666323e+00  rms_ω=1.941104e+00
+    ratio (fe/cp): max_I=1.0000  max_ω=1.1550
+
+  dt = 5.0ms:
+    filterexact: max|ΔI|=2.328146e+01  max|Δω|=2.353214e+01  rms_I=1.680058e+01  rms_ω=1.329392e+01
+    coupled:     max|ΔI|=1.704147e+01  max|Δω|=1.306157e+01  rms_I=1.154634e+01  rms_ω=7.141914e+00
+    ratio (fe/cp): max_I=1.3662  max_ω=1.8016
+
+────────────────────────────────────────────────────────────
+Scenario: fault_R — Fault: R 0.3→0.6Ω at 10ms
+────────────────────────────────────────────────────────────
+
+  dt = 0.1ms:
+    filterexact: max|ΔI|=4.336455e-01  max|Δω|=8.329221e-02  rms_I=1.403566e-01  rms_ω=4.267274e-02
+    coupled:     max|ΔI|=2.283600e-02  max|Δω|=9.198046e-02  rms_I=7.607931e-03  rms_ω=3.604582e-02
+    ratio (fe/cp): max_I=18.9896  max_ω=0.9055
+
+  dt = 0.5ms:
+    filterexact: max|ΔI|=2.771834e+00  max|Δω|=5.446518e-01  rms_I=8.911062e-01  rms_ω=2.555644e-01
+    coupled:     max|ΔI|=5.635609e-01  max|Δω|=5.446518e-01  rms_I=1.859474e-01  rms_ω=1.990458e-01
+    ratio (fe/cp): max_I=4.9184  max_ω=1.0000
+
+  dt = 1.0ms:
+    filterexact: max|ΔI|=6.655551e+00  max|Δω|=1.334551e+00  rms_I=2.224899e+00  rms_ω=6.271525e-01
+    coupled:     max|ΔI|=2.220904e+00  max|Δω|=1.334551e+00  rms_I=6.964002e-01  rms_ω=4.473905e-01
+    ratio (fe/cp): max_I=2.9968  max_ω=1.0000
+
+  dt = 5.0ms:
+    filterexact: max|ΔI|=2.328146e+01  max|Δω|=1.113499e+01  rms_I=1.433298e+01  rms_ω=7.497162e+00
+    coupled:     max|ΔI|=1.637151e+01  max|Δω|=6.344374e+00  rms_I=7.571296e+00  rms_ω=2.931341e+00
+    ratio (fe/cp): max_I=1.4221  max_ω=1.7551
+
+
+================================================================================
+SUCCESS CRITERIA EVALUATION
+================================================================================
+  PASS criterion 1: coupled error <= filterexact error in all cases
+
+  FAIL criterion 2 (step): ratio does NOT grow with dt (0.1ms: 18.990 → 5ms: 1.748)
+  FAIL criterion 2 (sinusoidal): ratio does NOT grow with dt (0.1ms: 1.159 → 5ms: 1.000)
+  FAIL criterion 2 (load_change): ratio does NOT grow with dt (0.1ms: 13.977 → 5ms: 1.715)
+  PASS criterion 2 (reversal): ratio grows with dt (0.1ms: 1.000 → 5ms: 1.366)
+  FAIL criterion 2 (fault_R): ratio does NOT grow with dt (0.1ms: 18.990 → 5ms: 1.422)
+
+  PASS criterion 3 (step): no regression at dt=0.1ms (ratio=18.990)
+  PASS criterion 3 (sinusoidal): no regression at dt=0.1ms (ratio=1.159)
+  PASS criterion 3 (load_change): no regression at dt=0.1ms (ratio=13.977)
+  PASS criterion 3 (reversal): no regression at dt=0.1ms (ratio=1.000)
+  PASS criterion 3 (fault_R): no regression at dt=0.1ms (ratio=18.990)

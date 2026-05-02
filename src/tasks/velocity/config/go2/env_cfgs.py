@@ -8,10 +8,14 @@ from src.assets.robots import (
 from src.assets.robots.unitree_go2.go2_constants import (
   get_go2_electric_robot_cfg,
   get_go2_native_electric_robot_cfg,
+  get_go2_coupled_electric_robot_cfg,
+  get_go2_methoda_robot_cfg,
+  get_go2_methodb_robot_cfg,
+  get_go2_aplus_tloop_robot_cfg,
 )
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs import mdp as envs_mdp
-from mjlab.envs.mdp.actions import JointPositionActionCfg
+from mjlab.envs.mdp.actions import JointPositionActionCfg, JointVelocityActionCfg
 from mjlab.managers import TerminationTermCfg
 from mjlab.managers.event_manager import EventTermCfg
 from mjlab.sensor import ContactMatch, ContactSensorCfg, RayCastSensorCfg
@@ -164,6 +168,108 @@ def unitree_go2_flat_native_electric_env_cfg(play: bool = False) -> ManagerBased
   # Physics sub-stepping: 0.1ms × 50 = 5ms policy step (원본과 동일)
   cfg.sim.mujoco.timestep = 0.0001   # dt_sub = 0.1ms (< τ_e/3 = 0.11ms)
   cfg.decimation = 50                 # 50 sub-steps → policy dt = 5ms
+
+  return cfg
+
+
+def unitree_go2_flat_coupled_electric_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
+  """Go2 flat terrain + MuJoCo-native coupled 전기모터 (Method A+: filterexact Schur).
+
+  Physics dt = 0.1ms, policy dt = 20ms (decimation=200).
+  """
+  cfg = unitree_go2_flat_env_cfg(play=play)
+  cfg.scene.entities = {"robot": get_go2_coupled_electric_robot_cfg()}
+
+  cfg.sim.mujoco.timestep = 0.0001   # 0.1ms
+  cfg.decimation = 200                # 0.1ms × 200 = 20ms policy dt
+
+  return cfg
+
+
+def unitree_go2_flat_methoda_electric_env_cfg(
+  play: bool = False,
+  use_velocity_action: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """Go2 flat terrain + Method A (BE integrator + BE Schur + BE Force RHS).
+
+  Physics dt = 0.1ms, policy dt = 20ms (decimation=200).
+  PD/tau target 재계산 주기 = 5ms → policy dt 안에서 4회 업데이트 (pd_substeps=50).
+  dynprm[4] = 0 → β_int = β_imp = 1/(1+h/τ) on patched mjwarp.
+
+  Args:
+    play: play(=eval) 모드 여부.
+    use_velocity_action: True 시 JointVelocity 액션으로 교체.
+  """
+  cfg = unitree_go2_flat_env_cfg(play=play)
+  cfg.scene.entities = {"robot": get_go2_methoda_robot_cfg()}
+
+  cfg.sim.mujoco.timestep = 0.0001   # 0.1ms
+  cfg.decimation = 200                # 0.1ms × 200 = 20ms policy dt
+
+  if use_velocity_action:
+    cfg.actions = {
+      "joint_vel": JointVelocityActionCfg(
+        entity_name="robot",
+        actuator_names=(".*",),
+        scale=5.0,
+        use_default_offset=True,
+      )
+    }
+
+  return cfg
+
+
+def unitree_go2_flat_aplus_tloop_electric_env_cfg(
+  play: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """Go2 flat terrain + A+ (coupled) + driver-rate torque-tracking integral loop.
+
+  Coupled (A+) 와 동일한 시간 위계 (physics 0.1ms, policy 20ms, decimation=200,
+  pd_substeps=50 → driver/PD/적분 갱신 주기 5ms).
+
+  use_torque_loop=True 가 켜져 있어 감자(demag) 고장 시 적분기가 I_cmd 를 자동
+  보정. healthy 에서는 적분기 ≈ 0 으로 머무르므로 nominal 동작과 거의 동일하다.
+  """
+  cfg = unitree_go2_flat_env_cfg(play=play)
+  cfg.scene.entities = {"robot": get_go2_aplus_tloop_robot_cfg()}
+
+  cfg.sim.mujoco.timestep = 0.0001   # 0.1ms
+  cfg.decimation = 200                # 0.1ms × 200 = 20ms policy dt
+
+  return cfg
+
+
+def unitree_go2_flat_methodb_electric_env_cfg(
+  play: bool = False,
+  use_velocity_action: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """Go2 flat terrain + Method B (ZOH integrator + BE Schur + BE Force RHS).
+
+  GPU 전용 (patched mjwarp). dynprm[4] = 2.
+  Integrator 는 1차 선형 ODE 의 정확 해(ZOH), implicit damping/Jacobian 은 BE 형식.
+
+  Physics dt = 0.1ms, policy dt = 20ms (decimation=200).
+  PD/tau target 재계산 주기 = 5ms → policy dt 안에서 4회 업데이트 (pd_substeps=50).
+
+  Args:
+    play: play(=eval) 모드 여부.
+    use_velocity_action: True 시 JointVelocity 액션으로 교체.
+  """
+  cfg = unitree_go2_flat_env_cfg(play=play)
+  cfg.scene.entities = {"robot": get_go2_methodb_robot_cfg()}
+
+  cfg.sim.mujoco.timestep = 0.0001   # 0.1ms
+  cfg.decimation = 200                # 0.1ms × 200 = 20ms policy dt
+
+  if use_velocity_action:
+    cfg.actions = {
+      "joint_vel": JointVelocityActionCfg(
+        entity_name="robot",
+        actuator_names=(".*",),
+        scale=5.0,
+        use_default_offset=True,
+      )
+    }
 
   return cfg
 

@@ -67,12 +67,21 @@ MuJoCo의 activation state (d->act)를 전류 I로 사용하여,
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import mujoco
 import mujoco_warp as mjwarp
 import numpy as np
 import torch
+
+# Method identifier → dynprm[4] selector for patched mjwarp.
+# A   : β_int = β_imp = 1/(1+h/τ)             — fully BE (integrator + Schur + Force RHS).
+# A+  : β_int = β_imp = exp(-h/τ)             — fully ZOH.
+# B   : β_int = exp(-h/τ), β_imp = 1/(1+h/τ)  — ZOH integrator, BE Schur/Force.
+# Note: stock CPU MuJoCo ignores dynprm[4] and always uses ZOH integrator,
+# so on CPU all three methods reduce to A+'s integrator with no Schur/Force RHS
+# correction. Method B is GPU-only (mjwarp).
+_METHOD_TO_DYNPRM4: dict[str, float] = {"A": 0.0, "A+": 1.0, "B": 2.0}
 
 from mjlab.actuator.actuator import ActuatorCmd
 from mjlab.actuator.dc_actuator import DcMotorActuator, DcMotorActuatorCfg
@@ -107,12 +116,56 @@ class NativeElectricActuatorCfg(DcMotorActuatorCfg):
     substeps: int = 1
     """Physics sub-steps per policy step (= decimation).
     1이면 서브스테핑 없음 (매 호출마다 PD 재계산).
-    >1이면 ZOH: 첫 서브스텝에서 τ_des → I_des 캐시,
-    이후 서브스텝에서는 최신 ω로 전압만 갱신."""
+    >1이면 ZOH: pd_substeps마다 PD 재계산,
+    그 사이 서브스텝에서는 최신 ω로 전압만 갱신."""
+
+    pd_substeps: int = 0
+    """PD 재계산 주기 (physics step 단위). 0이면 policy step에서만 PD 계산.
+    예: substeps=200, pd_substeps=50 → policy 20ms, PD 5ms, physics 0.1ms."""
 
     use_callback: bool = False
     """True: dyntype=user (Python callback, standard mujoco only).
     False: dyntype=filterexact (recommended, mujoco_warp compatible)."""
+
+    use_coupled: bool = False
+    """True: dyntype=filterexact_coupled (Schur complement back-EMF coupling).
+    implicit solver에 cross-Jacobian 항을 추가하여 전류 추적 정확도 향상.
+    use_callback=True와 동시 사용 불가."""
+
+    method: Literal["A", "A+", "B"] = "A+"
+    """coupled 모드에서 사용할 적분 method.
+
+    - "A" : integrator/Schur/Force 모두 β_be = 1/(1+h/τ) (BE consistent). dynprm[4]=0.
+    - "A+": integrator/Schur/Force 모두 β_exp = exp(-h/τ) (ZOH consistent). dynprm[4]=1.
+    - "B" : integrator만 β_exp (ZOH), Schur/Force는 β_be (BE). dynprm[4]=2. **GPU 전용**.
+
+    GPU 전용 의미: stock CPU MuJoCo 는 dynprm[4] 를 무시하고 항상 ZOH integrator 를 쓰고
+    Schur/Force RHS 보정 자체가 patched mjwarp 에만 존재한다. 따라서 CPU 에서는 A/A+/B
+    가 모두 ZOH integrator + (Schur/Force 보정 없음) 으로 동작한다.
+
+    dynprm[3]은 demag 기준 Ke_nom·gr 저장용으로 별도 사용."""
+
+    # ── Torque-tracking integral loop (driver-rate, 5 ms) ────────────
+    use_torque_loop: bool = False
+    """드라이버 안에 토크 추종 적분 제어 루프를 활성화.
+
+    False (기본): I_cmd = τ_cmd / (Kt_nominal·gr) — 기존 동작 (회귀 안전).
+    True: I_cmd += Ki·integral, where integral accumulates (τ_cmd − τ_actual_prev)·DRIVER_DT.
+
+    감자(demag) 고장으로 Kt_real < Kt_nominal 일 때, 적분기가 I_cmd 를 자동 상승시켜
+    τ_actual 이 τ_cmd 를 추종하도록 한다. 그 결과 고장 영향이 q 추종 오차 대신 전류
+    신호(I_cmd, I_actual)로 전가되어 진단용 feature 가 된다."""
+
+    Ki: float = 50.0
+    """토크 추종 적분 게인 [(A·s) / (N·m·s)]. use_torque_loop=True 일 때만 유효."""
+
+    integral_max: float | None = None
+    """적분기 anti-windup 클램프 [A·s].
+
+    None: (I_max − τ_cmd_max/(Kt_nom·gr)) / Ki 로 자동 계산.
+    현재 cfg 에선 I_max = effort_limit/(Kt_nom·gr) = τ_cmd_max/(Kt_nom·gr) 이라
+    headroom 이 0 으로 수렴 → fallback 값 0.2 를 사용 (TODO: I_max 와 saturation/effort
+    분리). 검증 스크립트에서는 명시값을 권장."""
 
     def build(
         self, entity: Entity, target_ids: list[int], target_names: list[str]
@@ -209,6 +262,11 @@ class NativeElectricActuator(DcMotorActuator):
         self._I_des_hold: torch.Tensor | None = None   # ZOH 캐시: I_des
         self._tau_des_hold: torch.Tensor | None = None  # ZOH 캐시: τ_des (로깅용)
 
+        # Torque-tracking integral loop state
+        self._integral: torch.Tensor | None = None   # [num_envs, num_joints]
+        self._driver_dt: float = 0.005               # 5 ms (= pd_substeps × physics_dt)
+        self._integral_max: float = 0.0              # anti-windup clamp [A·s]
+
         # Logging
         self._log: dict[str, list] | None = None
         self._log_step: int = 0
@@ -255,6 +313,31 @@ class NativeElectricActuator(DcMotorActuator):
                 V_max = cfg.R * I_max + cfg.Ke * cfg.gear_ratio * cfg.velocity_limit
                 act.ctrllimited = True
                 act.ctrlrange[:] = np.array([-V_max, V_max])
+            elif cfg.use_coupled:
+                # Strategy D: dyntype=filterexact with dynprm[1,2] for back-EMF coupling
+                # engine detects dynprm[1]>0 && dynprm[2]>0 → activates Schur complement
+                # No enum change needed → ABI compatible with pip-installed bindings
+                act.dyntype = mujoco.mjtDyn.mjDYN_FILTEREXACT
+                act.dynprm[0] = tau_e                       # L/R
+                act.dynprm[1] = cfg.Ke * cfg.gear_ratio     # Ke_plant·gr (demag script may overwrite)
+                act.dynprm[2] = cfg.L                        # L (inductance)
+                act.dynprm[3] = cfg.Ke * cfg.gear_ratio     # Ke_nom·gr — NEVER modified
+                # dynprm[4]: method selector for patched mjwarp.
+                # 0 = A (BE), 1 = A+ (ZOH), 2 = B (ZOH integrator + BE Schur/Force).
+                # Stock CPU MuJoCo ignores this slot.
+                if cfg.method not in _METHOD_TO_DYNPRM4:
+                    raise ValueError(
+                        f"NativeElectricActuatorCfg.method must be one of "
+                        f"{list(_METHOD_TO_DYNPRM4)}, got {cfg.method!r}"
+                    )
+                act.dynprm[4] = _METHOD_TO_DYNPRM4[cfg.method]
+                # NOTE: patched mjwarp FILTEREXACT kernel computes
+                #   act_dot += (dynprm[3] - dynprm[1]) * omega / dynprm[2]
+                # Healthy: dynprm[3]==dynprm[1] → correction=0 → vanilla filterexact.
+                # Demag:   inject_demagnetization() sets dynprm[1]=Ke_plant·gr, leaves dynprm[3] nominal.
+                # ctrl = 목표 전류 (PD + back-EMF), 동일한 변환 로직
+                act.ctrllimited = True
+                act.ctrlrange[:] = np.array([-I_max * 2, I_max * 2])
             else:
                 # Approach A: dyntype=filterexact (권장)
                 # act_dot = (ctrl − act) / τ_e
@@ -330,6 +413,28 @@ class NativeElectricActuator(DcMotorActuator):
                 "filterexact 정확도 저하. timestep을 줄이세요."
             )
 
+        # ── Torque-tracking integral loop setup ──────────────────────
+        num_envs = data.nworld
+        num_joints = len(self._target_names)
+        self._integral = torch.zeros(
+            num_envs, num_joints, dtype=torch.float, device=device
+        )
+
+        # driver_dt = PD 재계산 주기 (5 ms in default Coupled cfg)
+        pd_period = cfg.pd_substeps if cfg.pd_substeps > 0 else max(cfg.substeps, 1)
+        self._driver_dt = pd_period * dt
+
+        # anti-windup clamp
+        I_max = cfg.effort_limit / self._Ktgr
+        if cfg.integral_max is not None:
+            self._integral_max = float(cfg.integral_max)
+        else:
+            # User formula: (I_max − τ_cmd_max / Kt_nom·gr) / Ki
+            # 현재 cfg 에선 I_max == effort_limit/Kt_nom·gr 이므로 0 → fallback 0.2.
+            # TODO: I_max(하드웨어) 와 effort_limit(소프트웨어 클램프) 분리 후 재검토.
+            headroom = (I_max - cfg.effort_limit / self._Ktgr) / max(cfg.Ki, 1e-9)
+            self._integral_max = headroom if headroom > 0 else 0.2
+
     # ── Logging ──────────────────────────────────────────────────────
 
     def start_logging(self) -> None:
@@ -344,6 +449,9 @@ class NativeElectricActuator(DcMotorActuator):
             "ctrl": [],
             "V": [],
             "back_emf": [],
+            "I_des": [],
+            "integral": [],
+            "tau_actual_prev": [],
         }
         self._log_step = 0
 
@@ -386,17 +494,48 @@ class NativeElectricActuator(DcMotorActuator):
         cfg = self.cfg
         assert isinstance(cfg, NativeElectricActuatorCfg)
 
-        # ── ①② τ_des → I_des (ZOH: 첫 서브스텝에서만 계산) ─────
-        if cfg.substeps <= 1 or self._sub_idx == 0:
+        # ── ①② τ_des → I_des ─────────────────────────────────────
+        # PD 재계산 조건:
+        #   - substeps <= 1: 매 호출마다
+        #   - sub_idx == 0: policy step 경계 (항상)
+        #   - pd_substeps > 0 and sub_idx % pd_substeps == 0: PD 주기 경계
+        pd_period = cfg.pd_substeps if cfg.pd_substeps > 0 else cfg.substeps
+        recompute_pd = (cfg.substeps <= 1
+                        or self._sub_idx == 0
+                        or (cfg.pd_substeps > 0 and self._sub_idx % pd_period == 0))
+
+        if recompute_pd:
             # PD + DC motor saturation → τ_des
             tau_des = super().compute(cmd)
-            I_des = tau_des / self._Ktgr
-            # 서브스테핑 시 캐시 저장
+
+            if cfg.use_torque_loop:
+                # τ_actual_prev: 직전 5 ms 윈도우의 마지막 physics step 인가 토크.
+                # data.actuator_force = gain·act = Kt_real·gr × I (post-clamp).
+                # 0.1 ms (1 physics step) lag 존재하나 driver_dt(5ms)의 2% → 무시 가능.
+                # reset() 에서 명시적으로 0 처리하므로 첫 호출 시 정상.
+                tau_actual_prev = self._mjw_data.actuator_force[
+                    :, self._global_ctrl_ids
+                ]  # [num_envs, num_joints]
+
+                error = tau_des - tau_actual_prev
+                self._integral = torch.clamp(
+                    self._integral + error * self._driver_dt,
+                    min=-self._integral_max,
+                    max=self._integral_max,
+                )
+
+                I_max_t = cfg.effort_limit / self._Ktgr
+                I_des = tau_des / self._Ktgr + cfg.Ki * self._integral
+                I_des = torch.clamp(I_des, min=-I_max_t, max=I_max_t)
+            else:
+                I_des = tau_des / self._Ktgr
+
+            # 캐시 저장
             if cfg.substeps > 1:
                 self._I_des_hold = I_des
                 self._tau_des_hold = tau_des
         else:
-            # 서브스텝 1..N-1: 캐시된 I_des 사용 (ZOH)
+            # PD 주기 사이: 캐시된 I_des 사용 (ZOH)
             I_des = self._I_des_hold
             tau_des = self._tau_des_hold
 
@@ -440,6 +579,16 @@ class NativeElectricActuator(DcMotorActuator):
             self._log["back_emf"].append(
                 back_emf[0].cpu().numpy().copy()
             )
+            self._log["I_des"].append(I_des[0].cpu().numpy().copy())
+            if cfg.use_torque_loop and self._integral is not None:
+                tau_act_prev = (
+                    self._mjw_data.actuator_force[0, self._global_ctrl_ids]
+                    .cpu().numpy().copy()
+                )
+                self._log["integral"].append(
+                    self._integral[0].cpu().numpy().copy()
+                )
+                self._log["tau_actual_prev"].append(tau_act_prev)
             self._log_step += 1
 
         return ctrl
@@ -447,17 +596,29 @@ class NativeElectricActuator(DcMotorActuator):
     # ── reset ────────────────────────────────────────────────────────
 
     def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
-        """에피소드 리셋 시 전류(act) 및 서브스텝 카운터 초기화.
+        """에피소드 리셋 시 전류(act), 적분기, 서브스텝 카운터 초기화.
 
         mjlab은 policy step 경계에서 reset을 호출하므로
         _sub_idx = 0 리셋이 decimation 루프 시작과 일치.
+
+        actuator_force 도 함께 0 처리: 다음 mj_step 의 fwd_actuation 에서 어차피
+        재계산되지만, 그 전에 적분 루프가 읽으면 stale 값이 들어가므로 명시적 클리어.
         """
         if self._mjw_data is not None and self._act_adr is not None:
             if env_ids is None:
                 self._mjw_data.act[:, self._act_adr] = 0.0
+                self._mjw_data.actuator_force[:, self._global_ctrl_ids] = 0.0
             else:
                 # env_ids [N] × _act_adr [J] → broadcast [N, J]
-                self._mjw_data.act[env_ids.unsqueeze(-1), self._act_adr] = 0.0
+                ids = env_ids.unsqueeze(-1)
+                self._mjw_data.act[ids, self._act_adr] = 0.0
+                self._mjw_data.actuator_force[ids, self._global_ctrl_ids] = 0.0
+        # 적분기 상태 리셋
+        if self._integral is not None:
+            if env_ids is None:
+                self._integral.zero_()
+            else:
+                self._integral[env_ids] = 0.0
         # 서브스텝 카운터 리셋 → 다음 compute()에서 PD 재계산
         self._sub_idx = 0
 
