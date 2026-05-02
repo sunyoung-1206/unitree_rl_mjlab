@@ -47,6 +47,8 @@ class PlotConfig:
     """출력 루트 디렉토리. {out}/{joint_name}/{tag}1_position.png 형태로 저장."""
     plots: str = "1,2,3,4,5,6,7,8"
     """출력할 그래프 번호 (쉼표 구분). 8 = 커플링 검증 (vel·back_emf·current)."""
+    timestamp: bool = False
+    """True면 파일명 끝에 _YYYYMMDD_HHMMSS 시간 태그 추가 (캐시/덮어쓰기 방지)."""
     device: str = "cuda:0" if torch.cuda.is_available() else "cpu"
 
 
@@ -187,13 +189,25 @@ def collect_data(task_id: str, cfg: PlotConfig) -> tuple[dict, list[str], float,
     return merged, all_joint_names, physics_dt_ms, decimation
 
 
-def _vlines(ax, t_ms, decimation, full=True):
-    """physics step (silver) and policy step (gray) vertical lines."""
-    if full:
-        for t in t_ms:
-            ax.axvline(t, color="silver", lw=0.5, alpha=0.5)
-    for t in t_ms[::decimation]:
-        ax.axvline(t, color="gray", lw=0.9, alpha=0.7)
+def _vlines(ax, t_ms, decimation, mode="policy"):
+    """Vertical guide lines.
+
+    mode:
+      "policy"  — policy step lines only (gray), max ~100 lines
+      "zoomed"  — policy step lines only (gray), no physics step lines
+      "none"    — no lines
+    """
+    if mode == "none":
+        return
+    policy_times = t_ms[::decimation]
+    # Thin out if too many lines (>100)
+    t_range = t_ms[-1] - t_ms[0] if len(t_ms) > 1 else 1.0
+    if len(policy_times) > 100:
+        # Show every N-th policy step so ~50 lines max
+        skip = max(1, len(policy_times) // 50)
+        policy_times = policy_times[::skip]
+    for t in policy_times:
+        ax.axvline(t, color="gray", lw=0.6, alpha=0.5)
 
 
 def _save(fig, path: Path) -> None:
@@ -238,6 +252,13 @@ def plot(data: dict, joint_names: list[str], cfg: PlotConfig,
     enabled = {int(x.strip()) for x in cfg.plots.split(",") if x.strip()}
     out_root = Path(cfg.out)
 
+    # Timestamp suffix (optional)
+    if cfg.timestamp:
+        from datetime import datetime
+        ts_suffix = "_" + datetime.now().strftime("%Y%m%d_%H%M%S")
+    else:
+        ts_suffix = ""
+
     for ji in indices:
         jname = joint_names[ji]
         jdir  = out_root / jname
@@ -262,8 +283,8 @@ def plot(data: dict, joint_names: list[str], cfg: PlotConfig,
             ax.set_ylabel("rad")
             ax.set_title(f"{jname}  position  |  {base_title}")
             ax.legend(fontsize=8)
-            _vlines(ax, t_ms, decimation, full=False)
-            _save(fig, jdir / f"{p}1_position.png")
+            _vlines(ax, t_ms, decimation, mode="policy")
+            _save(fig, jdir / f"{p}1_position{ts_suffix}.png")
 
         # ── 2. torque (full duration) ─────────────────────────────────────────
         if 2 in enabled:
@@ -278,8 +299,8 @@ def plot(data: dict, joint_names: list[str], cfg: PlotConfig,
             ax.set_ylabel("N·m")
             ax.set_title(f"{jname}  torque  |  {base_title}")
             ax.legend(fontsize=8)
-            _vlines(ax, t_ms, decimation, full=False)
-            _save(fig, jdir / f"{p}2_torque.png")
+            _vlines(ax, t_ms, decimation, mode="policy")
+            _save(fig, jdir / f"{p}2_torque{ts_suffix}.png")
 
         # ── 3. torque zoomed ─────────────────────────────────────────────────
         if 3 in enabled:
@@ -291,8 +312,8 @@ def plot(data: dict, joint_names: list[str], cfg: PlotConfig,
             ax.set_ylabel("N·m")
             ax.set_title(f"{jname}  torque (zoomed)  |  {base_title}")
             ax.legend(fontsize=8)
-            _vlines(ax, t_ms_w, decimation, full=True)
-            _save(fig, jdir / f"{p}3_torque_zoomed.png")
+            _vlines(ax, t_ms_w, decimation, mode="zoomed")
+            _save(fig, jdir / f"{p}3_torque_zoomed{ts_suffix}.png")
 
         # ── 4. torque residual (full duration) ───────────────────────────────
         if 4 in enabled:
@@ -306,8 +327,8 @@ def plot(data: dict, joint_names: list[str], cfg: PlotConfig,
             ax.set_ylabel("N·m")
             ax.set_title(f"{jname}  torque residual  |  {base_title}")
             ax.legend(fontsize=8)
-            _vlines(ax, t_ms, decimation, full=False)
-            _save(fig, jdir / f"{p}4_torque_residual.png")
+            _vlines(ax, t_ms, decimation, mode="policy")
+            _save(fig, jdir / f"{p}4_torque_residual{ts_suffix}.png")
 
         # ── 5. current (full duration) ────────────────────────────────────────
         if 5 in enabled:
@@ -322,8 +343,8 @@ def plot(data: dict, joint_names: list[str], cfg: PlotConfig,
             ax.set_ylabel("A")
             ax.set_title(f"{jname}  current  |  {base_title}")
             ax.legend(fontsize=8)
-            _vlines(ax, t_ms, decimation, full=False)
-            _save(fig, jdir / f"{p}5_current.png")
+            _vlines(ax, t_ms, decimation, mode="policy")
+            _save(fig, jdir / f"{p}5_current{ts_suffix}.png")
 
         # ── 6. current zoomed ────────────────────────────────────────────────
         if 6 in enabled:
@@ -335,8 +356,8 @@ def plot(data: dict, joint_names: list[str], cfg: PlotConfig,
             ax.set_ylabel("A")
             ax.set_title(f"{jname}  current (zoomed)  |  {base_title}")
             ax.legend(fontsize=8)
-            _vlines(ax, t_ms_w, decimation, full=True)
-            _save(fig, jdir / f"{p}6_current_zoomed.png")
+            _vlines(ax, t_ms_w, decimation, mode="zoomed")
+            _save(fig, jdir / f"{p}6_current_zoomed{ts_suffix}.png")
 
         # ── 7. current residual (full duration) ──────────────────────────────
         if 7 in enabled:
@@ -350,8 +371,8 @@ def plot(data: dict, joint_names: list[str], cfg: PlotConfig,
             ax.set_ylabel("A")
             ax.set_title(f"{jname}  current residual  |  {base_title}")
             ax.legend(fontsize=8)
-            _vlines(ax, t_ms, decimation, full=False)
-            _save(fig, jdir / f"{p}7_current_residual.png")
+            _vlines(ax, t_ms, decimation, mode="policy")
+            _save(fig, jdir / f"{p}7_current_residual{ts_suffix}.png")
 
         # ── 8. 커플링 검증: ω (MuJoCo) ↔ back-EMF ↔ I ───────────────────────
         # back-EMF = Ke × ω_motor = Ke × vel × gr 이 dI/dt에 직접 들어가므로,
@@ -382,15 +403,45 @@ def plot(data: dict, joint_names: list[str], cfg: PlotConfig,
             ax2.legend(fontsize=8, loc="upper right")
             ax2.grid(True, alpha=0.3)
 
-            _vlines(ax0, t_ms_w, decimation, full=True)
-            _vlines(ax1, t_ms_w, decimation, full=True)
-            _vlines(ax2, t_ms_w, decimation, full=True)
+            _vlines(ax0, t_ms_w, decimation, mode="zoomed")
+            _vlines(ax1, t_ms_w, decimation, mode="zoomed")
+            _vlines(ax2, t_ms_w, decimation, mode="zoomed")
 
             fig.suptitle(
-                f"{jname}  커플링 검증: ω (MuJoCo) ↔ back-EMF ↔ I  |  {base_title}",
+                f"{jname}  Coupling: omega (MuJoCo) - back-EMF - I  |  {base_title}",
                 fontsize=9,
             )
-            _save(fig, jdir / f"{p}8_coupling.png")
+            _save(fig, jdir / f"{p}8_coupling{ts_suffix}.png")
+
+        # ── 9. voltage (full duration) ────────────────────────────────────
+        if 9 in enabled and "V" in data:
+            fig, ax = plt.subplots(figsize=(10, 3))
+            ax.grid(False)
+            V_arr = data["V"][:, ji]
+            bemf = data["back_emf"][:, ji]
+            ax.plot(t_ms, V_arr, label="V = R·I_des + Ke·gr·ω", lw=1.0, color="tab:purple", zorder=2)
+            ax.plot(t_ms, bemf,  label="back-EMF = Ke·gr·ω",     lw=0.8, color="tab:cyan",   zorder=1, alpha=0.7)
+            ax.set_xlabel("time (ms)")
+            ax.set_ylabel("V")
+            ax.set_title(f"{jname}  voltage  |  {base_title}")
+            ax.legend(fontsize=8)
+            _vlines(ax, t_ms, decimation, mode="policy")
+            _save(fig, jdir / f"{p}9_voltage{ts_suffix}.png")
+
+        # ── 10. voltage zoomed ────────────────────────────────────────
+        if 10 in enabled and "V" in data:
+            fig, ax = plt.subplots(figsize=(10, 3))
+            ax.grid(False)
+            V_arr = data["V"][:w, ji]
+            bemf = data["back_emf"][:w, ji]
+            ax.plot(t_ms_w, V_arr, label="V = R·I_des + Ke·gr·ω", lw=1.2, color="tab:purple", zorder=2)
+            ax.plot(t_ms_w, bemf,  label="back-EMF = Ke·gr·ω",     lw=1.0, color="tab:cyan",   zorder=1, alpha=0.7)
+            ax.set_xlabel("time (ms)")
+            ax.set_ylabel("V")
+            ax.set_title(f"{jname}  voltage (zoomed)  |  {base_title}")
+            ax.legend(fontsize=8)
+            _vlines(ax, t_ms_w, decimation, mode="zoomed")
+            _save(fig, jdir / f"{p}10_voltage_zoomed{ts_suffix}.png")
 
         saved = sorted(enabled)
         print(f"[INFO] {jname}: saved plots {saved} → {jdir.resolve()}")
@@ -403,6 +454,8 @@ def main():
         tyro.extras.literal_type_from_choices([
             "Unitree-Go2-Flat-Electric",
             "Unitree-Go2-Flat-Native-Electric",
+            "Unitree-Go2-Flat-Coupled-Electric",
+            "Unitree-Go2-Flat-MethodA-Electric",
         ]),
         add_help=False,
         return_unknown_args=True,
