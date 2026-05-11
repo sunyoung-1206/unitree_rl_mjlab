@@ -399,12 +399,15 @@ def get_go2_methodb_robot_cfg() -> EntityCfg:
 
 # A+ (coupled) + torque-tracking integral loop in driver.
 # Cfg는 _MA_MOTOR/Coupled와 동일, use_torque_loop만 추가로 켜짐.
-# Ki=50, integral_max=0.5 (검증 스크립트 기본값과 동일).
+# Ki=200, integral_max=0.5 — α∈[0.05, 1.0] 전 영역 robustness 검증 결과 (RR_calf 기준):
+#   * ringing/posture/cap usage 모두 K_i=50 대비 우월
+#   * gait period 600 ms 유지 (K_i≥400 에선 보행 망가짐)
+#   * cap usage ≤ 58 % at α=0.2 (K_i=100 의 97% → K_i=200 의 58% 마진 확보)
 _APLUS_TLOOP_MOTOR = dict(
   Kt=0.128, Ke=0.128, R=0.3, L=1e-4, gear_ratio=6.33,
   substeps=_COUPLED_SUBSTEPS, pd_substeps=_PD_RECOMPUTE,
   use_coupled=True, method="A+",
-  use_torque_loop=True, Ki=50.0, integral_max=0.5,
+  use_torque_loop=True, Ki=200.0, integral_max=0.5,
 )
 GO2_APLUS_TLOOP_HIP = NativeElectricActuatorCfg(
   target_names_expr=(".*hip_.*",), stiffness=20.0, damping=1.0,

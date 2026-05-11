@@ -269,6 +269,22 @@ def run_one(args) -> None:
         print(f"[SCHUR TEST] flipped use_filterexact_schur=True on "
               f"{changed} actuator cfgs (dynprm[4]=1.0, A+ Schur complement).")
 
+    if args.policy in ELECTRIC_POLICIES and (args.ki_override is not None
+                                              or args.integral_max_override is not None):
+        n_ki = n_im = 0
+        for act_cfg in env_cfg.scene.entities["robot"].articulation.actuators:
+            if args.ki_override is not None and hasattr(act_cfg, "Ki"):
+                act_cfg.Ki = float(args.ki_override)
+                n_ki += 1
+            if args.integral_max_override is not None and hasattr(act_cfg, "integral_max"):
+                act_cfg.integral_max = float(args.integral_max_override)
+                n_im += 1
+        if args.ki_override is not None:
+            print(f"[KI OVERRIDE] Ki -> {args.ki_override} on {n_ki} actuator cfgs.")
+        if args.integral_max_override is not None:
+            print(f"[INT_MAX OVERRIDE] integral_max -> {args.integral_max_override} "
+                  f"on {n_im} actuator cfgs.")
+
     render_mode = None if args.no_video else "rgb_array"
     env = ManagerBasedRlEnv(cfg=env_cfg, device=device, render_mode=render_mode)
 
@@ -330,8 +346,12 @@ def run_one(args) -> None:
                 electric_actuators.append((a, cols))
 
     out_root = Path(args.output_dir)
+    ki_suffix = (f"_ki{int(round(args.ki_override)):03d}"
+                 if args.ki_override is not None else "")
+    output_policy_tag = (args.policy + ki_suffix
+                         + ("_qfreeze" if args.qfreeze else ""))
     npz_path, mp4_path, case_tag = output_paths(
-        args.policy, args.leg, args.demag_factor, out_root)
+        output_policy_tag, args.leg, args.demag_factor, out_root)
     npz_path.parent.mkdir(parents=True, exist_ok=True)
     if not args.no_video:
         mp4_path.parent.mkdir(parents=True, exist_ok=True)
@@ -362,9 +382,16 @@ def run_one(args) -> None:
         f"build={dynprm3_at_build} start={dynprm3_at_rollout_start}")
     print(f"[DYNPRM3 @ rollout]    {np.round(dynprm3_at_rollout_start, 4).tolist()}")
 
+    actions_frozen = None  # cached t=0 action when --qfreeze
     for step in range(N):
-        actions = policy(obs)
-        obs, rew, dones, extras = wrapped.step(actions)
+        actions_raw = policy(obs)  # always call to update GRU hidden state
+        if args.qfreeze:
+            if actions_frozen is None:
+                actions_frozen = actions_raw.clone()
+            actions_to_apply = actions_frozen
+        else:
+            actions_to_apply = actions_raw
+        obs, rew, dones, extras = wrapped.step(actions_to_apply)
 
         wp_data = env.sim.data.struct
         ctrl = wp_data.ctrl.numpy()
@@ -459,6 +486,14 @@ def run_one(args) -> None:
         "demag_leg": args.leg,
         "demag_factor": float(args.demag_factor),
         "controller_aware": bool(args.ctrl_aware),
+        "qfreeze": bool(args.qfreeze),
+        "qfreeze_note": (
+            "if True, the t=0 action was held for all subsequent steps. Policy "
+            "GRU continued to update with current obs but its output was ignored. "
+            "Used to isolate inner integrator from outer-loop forcing time variation."),
+        "ki_override": (float(args.ki_override) if args.ki_override is not None else None),
+        "integral_max_override": (float(args.integral_max_override)
+                                   if args.integral_max_override is not None else None),
         "controller_aware_note": (
             "if True, controller _Ktgr for the demagnetized calf was scaled by "
             "demag_factor, i.e. I_des = tau_des / (Kt_nom * factor). _Kegr "
@@ -563,6 +598,16 @@ def main():
                              "_Ktgr for the demag'd calf so I_des = tau_des / "
                              "(Kt_nom * factor). _Kegr (back-EMF FF) stays at "
                              "nominal. No effect with --policy pd.")
+    parser.add_argument("--qfreeze", action="store_true",
+                        help="freeze action to its t=0 value: policy GRU keeps "
+                             "running on current obs but its output is ignored. "
+                             "Isolates inner integrator from outer-loop forcing "
+                             "time variation. Output dir gets _qfreeze suffix.")
+    parser.add_argument("--ki-override", type=float, default=None,
+                        help="override actuator Ki gain (electric policies only). "
+                             "Output dir gets _ki<int> suffix (3-digit zero-padded).")
+    parser.add_argument("--integral-max-override", type=float, default=None,
+                        help="override actuator integral_max [A*s].")
     args = parser.parse_args()
 
     if args.device is None:

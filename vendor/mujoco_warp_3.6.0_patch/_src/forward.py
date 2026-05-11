@@ -764,8 +764,12 @@ def _actuator_force(
 
   # Method A/A+/B RHS correction (Schur complement RHS):
   # force currently uses I_old (act_in[act_last]) when not actearly.
-  # Predicts I_new = β_imp·I_old + (1-β_imp)·ctrl.
-  # ΔF = gain·(1-β_imp)·(ctrl - I_old).
+  # Schur RHS contribution: (1-β_imp)·(K_t·gr/R)·F_elec, where
+  #   F_elec = R·(ctrl - I_old) + (Ke_nom·gr - Ke_plant·gr)·omega
+  # gives two pieces:
+  #   ΔF_filter = gain·(1-β_imp)·(ctrl - I_old)                          (vanilla)
+  #   ΔF_demag  = gain·(1-β_imp)·(dynprm[3] - dynprm[1])·omega / R       (Ke mismatch)
+  # Healthy (dynprm[3]==dynprm[1]) ⇒ ΔF_demag = 0 ⇒ vanilla behaviour.
   # β_imp selector via dynprm[4]:
   #   0 → A   : 1-β_imp = h/(τ+h)            (BE)
   #   1 → A+  : 1-β_imp = 1 - exp(-h/τ)      (ZOH)
@@ -785,6 +789,11 @@ def _actuator_force(
           one_minus_beta = h_dt / (tau_e + h_dt)        # A IE
         I_old = act_in[worldid, act_last]
         force += gain * one_minus_beta * (ctrl - I_old)
+        # Demag mismatch piece of the Schur RHS (Ke_nom ≠ Ke_plant).
+        # R is reconstructed as L/τ from dynprm[2]/dynprm[0]; same omega as act_dot.
+        R_eff = dynprm_uid[2] / tau_e
+        omega_uid = actuator_velocity_in[worldid, uid]
+        force += gain * one_minus_beta * (dynprm_uid[3] - dynprm_uid[1]) * omega_uid / R_eff
 
   if actuator_forcelimited[uid]:
     forcerange = actuator_forcerange[worldid % actuator_forcerange.shape[0], uid]
