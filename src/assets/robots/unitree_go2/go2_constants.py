@@ -184,7 +184,8 @@ GO2_COUPLED_ELECTRIC_ARTICULATION = EntityArticulationInfoCfg(
 
 
 # Method A (BE consistent: integrator/Schur/Force 전부 β_be = 1/(1+h/τ)).
-_MA_MOTOR = dict(Kt=0.128, Ke=0.128, R=0.3, L=1e-4, gear_ratio=6.33,
+_MA_MOTOR = dict(Kt=0.26, Ke=0.26, R=0.66, L=83e-6, gear_ratio=6.33,
+                 V_bus=30.8,
                  substeps=_COUPLED_SUBSTEPS, pd_substeps=_PD_RECOMPUTE,
                  use_coupled=True, method="A")
 GO2_METHODA_HIP = NativeElectricActuatorCfg(

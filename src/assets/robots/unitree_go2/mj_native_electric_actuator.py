@@ -259,6 +259,10 @@ class NativeElectricActuator(DcMotorActuator):
         self._I_des_hold: torch.Tensor | None = None   # ZOH 캐시: I_des
         self._tau_des_hold: torch.Tensor | None = None  # ZOH 캐시: τ_des (로깅용)
 
+        # Per-env V_bus tensor. DR event term can write to this directly.
+        # Shape [num_envs, 1], broadcastable to compute()'s [num_envs, num_joints] V.
+        self._V_bus: torch.Tensor | None = None
+
         # Torque-tracking integral loop state
         self._integral: torch.Tensor | None = None   # [num_envs, num_joints]
         self._driver_dt: float = 0.005               # 5 ms (= pd_substeps × physics_dt)
@@ -417,6 +421,11 @@ class NativeElectricActuator(DcMotorActuator):
             num_envs, num_joints, dtype=torch.float, device=device
         )
 
+        # Per-env V_bus tensor — DR event term mutates this in place.
+        self._V_bus = torch.full(
+            (num_envs, 1), float(cfg.V_bus), dtype=torch.float, device=device
+        )
+
         # driver_dt = PD 재계산 주기 (5 ms in default Coupled cfg)
         pd_period = cfg.pd_substeps if cfg.pd_substeps > 0 else max(cfg.substeps, 1)
         self._driver_dt = pd_period * dt
@@ -544,8 +553,9 @@ class NativeElectricActuator(DcMotorActuator):
         back_emf = self._Kegr * omega                # Ke·gr·ω  [V]
         V = cfg.R * I_des + back_emf                  # [V]
 
-        # 버스 전압 포화
-        V = torch.clamp(V, -cfg.V_bus, cfg.V_bus)
+        # 버스 전압 포화 — per-env V_bus tensor (DR randomized).
+        V_lim = self._V_bus if self._V_bus is not None else V.new_full((1, 1), float(cfg.V_bus))
+        V = torch.clamp(V, -V_lim, V_lim)
 
         # ── ④ filterexact / callback 입력 변환 ──────────────────
         if cfg.use_callback:

@@ -13,12 +13,15 @@ from src.assets.robots.unitree_go2.go2_constants import (
 )
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs import mdp as envs_mdp
+from mjlab.envs.mdp import dr
 from mjlab.envs.mdp.actions import JointPositionActionCfg, JointVelocityActionCfg
 from mjlab.managers import TerminationTermCfg
 from mjlab.managers.event_manager import EventTermCfg
+from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactMatch, ContactSensorCfg, RayCastSensorCfg
 from mjlab.tasks.velocity import mdp
 from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
+import src.tasks.velocity.mdp as src_mdp
 
 from src.tasks.velocity.velocity_env_cfg import make_velocity_env_cfg
 
@@ -166,6 +169,13 @@ def unitree_go2_flat_methoda_electric_env_cfg(
   PD/tau target 재계산 주기 = 5ms → policy dt 안에서 4회 업데이트 (pd_substeps=50).
   dynprm[4] = 0 → β_int = β_imp = 1/(1+h/τ) on patched mjwarp.
 
+  sim2real-DR-v1 additions (relative to base velocity cfg):
+    * observation actor group: history_length=5; obs delay 0..4 steps on
+      base_ang_vel / projected_gravity / joint_pos / joint_vel.
+    * events: V_bus / actuator_gain / motor_strength / base_mass / link_mass /
+      joint_pos_bias / external_force_torque randomization; widened
+      foot_friction range.
+
   Args:
     play: play(=eval) 모드 여부.
     use_velocity_action: True 시 JointVelocity 액션으로 교체.
@@ -185,6 +195,95 @@ def unitree_go2_flat_methoda_electric_env_cfg(
         use_default_offset=True,
       )
     }
+
+  # ── Observation: actor history + per-term delay ──────────────────────
+  actor_group = cfg.observations["actor"]
+  actor_group.history_length = 5
+  for term_name in ("base_ang_vel", "projected_gravity", "joint_pos", "joint_vel"):
+    term = actor_group.terms[term_name]
+    term.delay_min_lag = 0
+    term.delay_max_lag = 4
+
+  # ── Events: widen existing + add 7 new DR terms ──────────────────────
+  # 3-8: widen foot friction range.
+  cfg.events["foot_friction"].params["ranges"] = (0.2, 1.5)
+
+  # 3-1: per-env bus voltage on every reset.
+  cfg.events["randomize_V_bus"] = EventTermCfg(
+    mode="reset",
+    func=src_mdp.randomize_V_bus,
+    params={
+      "asset_cfg": SceneEntityCfg("robot"),
+      "voltage_range": (28.0, 33.6),
+    },
+  )
+
+  # 3-2: PD gain log-uniform scale ±20 %.
+  cfg.events["randomize_actuator_gains"] = EventTermCfg(
+    mode="startup",
+    func=dr.pd_gains,
+    params={
+      "asset_cfg": SceneEntityCfg("robot"),
+      "kp_range": (0.8, 1.2),
+      "kd_range": (0.8, 1.2),
+      "distribution": "log_uniform",
+      "operation": "scale",
+    },
+  )
+
+  # 3-3: Kt = Ke ±10 % shared scale → gainprm[0], dynprm[1], dynprm[3].
+  cfg.events["randomize_motor_strength"] = EventTermCfg(
+    mode="startup",
+    func=src_mdp.randomize_motor_strength,
+    params={
+      "asset_cfg": SceneEntityCfg("robot"),
+      "scale_range": (0.9, 1.1),
+    },
+  )
+
+  # 3-4: base payload ±. mjlab dr.body_mass operation="add".
+  cfg.events["randomize_base_mass"] = EventTermCfg(
+    mode="startup",
+    func=dr.body_mass,
+    params={
+      "asset_cfg": SceneEntityCfg("robot", body_names=("base_link",)),
+      "ranges": (-1.5, 3.0),
+      "operation": "add",
+    },
+  )
+
+  # 3-5: leg link mass scale ±10 %.
+  cfg.events["randomize_link_mass"] = EventTermCfg(
+    mode="startup",
+    func=dr.body_mass,
+    params={
+      "asset_cfg": SceneEntityCfg("robot", body_names=".*(hip|thigh|calf).*"),
+      "ranges": (0.9, 1.1),
+      "operation": "scale",
+    },
+  )
+
+  # 3-6: joint zero-position bias propagated to action offset.
+  cfg.events["joint_pos_bias"] = EventTermCfg(
+    mode="startup",
+    func=src_mdp.joint_pos_bias,
+    params={
+      "asset_cfg": SceneEntityCfg("robot"),
+      "bias_range": (-0.03, 0.03),
+    },
+  )
+
+  # 3-7: external force/torque kicks on base every 8–12 s.
+  cfg.events["external_force_torque"] = EventTermCfg(
+    mode="interval",
+    interval_range_s=(8.0, 12.0),
+    func=envs_mdp.apply_external_force_torque,
+    params={
+      "asset_cfg": SceneEntityCfg("robot", body_names=("base_link",)),
+      "force_range": (-30.0, 30.0),
+      "torque_range": (-3.0, 3.0),
+    },
+  )
 
   return cfg
 
