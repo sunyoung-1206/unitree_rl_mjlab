@@ -61,8 +61,10 @@ python scripts/train.py Unitree-G1-Flat \
 - The first argument (e.g., Mjlab-Velocity-Flat-Unitree-G1) specifies the training task.
 Available velocity tracking tasks:
   - Unitree-Go2-Flat
-  - Unitree-Go2-Flat-Electric *(added in this fork)*
-  - Unitree-Go2-Flat-Native-Electric *(added in this fork)*
+  - Unitree-Go2-Flat-Coupled-Electric *(added in this fork — Method A+ ZOH, Schur back-EMF)*
+  - Unitree-Go2-Flat-Coupled-Tloop-Electric *(added in this fork — A+ + driver-rate τ tracking integral loop)*
+  - Unitree-Go2-Flat-MethodA-Electric *(added in this fork — fully BE consistent)*
+  - Unitree-Go2-Flat-MethodB-Electric *(added in this fork — ZOH integrator + BE Schur/Force, GPU-only)*
   - Unitree-G1-Flat
   - Unitree-G1-23Dof-Flat
   - Unitree-H1_2-Flat
@@ -234,75 +236,65 @@ cd deploy/robots/g1/build
 
 > The following features were added in this fork on top of the original repository.
 
-### 1. Electric Motor Actuator for Go2
+### 1. Electric Motor Actuator for Go2 (MuJoCo-native, Coupled Back-EMF)
 
-Added an **electric motor ODE actuator** that models current-torque dynamics (dI/dt) of brushless DC motors, more physically accurate than a simple PD controller.
-
-**New files:**
-- `src/assets/robots/unitree_go2/electric_actuator.py` — `ElectricMotorActuatorCfg` class (Python Backward Euler solver)
-- `src/assets/robots/unitree_go2/coupled_ode_solver.py` — 2×2 coupled electrical-mechanical ODE solver
-
-**Modified files:**
-- `src/assets/robots/unitree_go2/go2_constants.py` — added `GO2_ELECTRIC_*` configs
-- `src/tasks/velocity/config/go2/env_cfgs.py` — added `unitree_go2_flat_electric_env_cfg()`
-- `src/tasks/velocity/config/go2/__init__.py` — registered `Unitree-Go2-Flat-Electric` task
-
-Training:
-```bash
-python scripts/train.py Unitree-Go2-Flat-Electric --env.scene.num-envs=4096
-```
-
-### 2. MuJoCo-Native Electric Motor (act/act_dot Integration)
-
-Integrates motor current $I$ directly into MuJoCo's state vector (`d->act`) so the electrical ODE is solved **inside** MuJoCo's implicit solver — not in an external Python loop.
+Added a **MuJoCo-native electric motor actuator** that integrates motor current $I$ directly into MuJoCo's state vector (`d->act`) so the electrical ODE is solved **inside** MuJoCo's implicit solver. The back-EMF coupling term $K_e\,g_r\,\omega$ is incorporated into the implicit solver via a Schur-complement update on a patched `mujoco_warp` build, giving physically accurate current-torque dynamics with GPU performance.
 
 **Architecture:**
 
 ```
-Policy (200Hz, 5ms)
+Policy (50Hz, 20ms)
   │ position_target
   ▼
-┌──────────────────────────────────────────────────────┐
-│  NativeElectricActuator (black-box sub-stepping)     │
-│                                                       │
-│  Sub 0:  τ_des = PD(target, q₀, v₀)  ← compute once │
-│          I_des = τ_des / (Kt·gr)      ← ZOH cache    │
-│                                                       │
-│  Sub k:  ω_k ← latest MuJoCo velocity                │
-│          V_k = R·I_des + Ke·gr·ω_k   ← back-EMF FF  │
-│          ctrl_k → mj_step()                           │
-│          ...                                          │
-│  Sub 49: → (q, v) returned to policy                  │
-└──────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────┐
+│  NativeElectricActuator (driver + black-box substeps)  │
+│                                                         │
+│  Driver tick (5ms): τ_des = PD(target, q, v)           │
+│                     I_des  = τ_des / (Kt·gr)            │
+│                     ( + optional τ-tracking integral )  │
+│                                                         │
+│  Physics sub (0.1ms): ω ← latest qvel                   │
+│                       V    = R·I_des + Ke·gr·ω          │
+│                       ctrl → mj_step()                  │
+│                       (Schur back-EMF in implicit J)    │
+└────────────────────────────────────────────────────────┘
 ```
 
 **Key features:**
-- `dyntype=filterexact`: MuJoCo analytically includes $\partial(\dot{I})/\partial I = -R/L$ in implicit solver matrix
-- Sub-stepping: 50 × 0.1ms physics steps per 5ms policy step, with back-EMF updated every sub-step
-- Zero-order hold: $\tau_{des}$ computed once per policy step, voltage controller updates every sub-step
-- Bus voltage saturation: optional `V_bus` limit for realistic high-speed torque rolloff
-- GPU compatible: uses MuJoCo built-in `filterexact` (no Python callbacks), works with `mujoco_warp`
+- `dyntype=filterexact_coupled`: patched mjwarp engine adds the cross-Jacobian term $\partial(\dot I)/\partial \omega = -K_e\,g_r/L$ to the implicit solver. dynprm[4] selects which $\beta$ coefficients are used.
+- Sub-stepping: 200 × 0.1 ms physics steps per 20 ms policy step, with back-EMF updated every sub-step (5 ms driver rate for PD/τ-tracking).
+- Bus voltage saturation: optional `V_bus` limit for realistic high-speed torque rolloff.
+- GPU compatible: requires patched `mujoco_warp` for the coupling correction (stock CPU MuJoCo ignores dynprm[4] and falls back to ZOH without Schur).
 
-**New files:**
+**Backend note (train / play / video):**
+This project uses `mujoco_warp` as the **single simulation backend** — `mjlab.sim.Simulation` always calls `mjwarp.step()` regardless of the `device` argument. Passing `--device cpu` does **not** switch to the stock MuJoCo C engine; it makes Warp JIT-compile the same kernels (including the patched electric-motor `dyntype=filterexact_coupled`) for the CPU backend. The MuJoCo `mjcb_act_dyn` callback path is **not** used — all actuator configs set `use_callback=false`, so training, play, and video rendering all execute the identical in-kernel electric-motor dynamics. No separate "CPU electric motor" implementation is needed for any of these paths.
+
+**Files:**
 - `src/assets/robots/unitree_go2/mj_native_electric_actuator.py` — `NativeElectricActuatorCfg` / `NativeElectricActuator`
-- `src/assets/robots/unitree_go2/electric_motor_callback.c` — optional C callback for `dyntype=user` approach
+- `src/assets/robots/unitree_go2/go2_constants.py` — `GO2_COUPLED_ELECTRIC_*`, `GO2_METHODA_*`, `GO2_METHODB_*`, `GO2_APLUS_TLOOP_*` configs
+- `src/tasks/velocity/config/go2/env_cfgs.py` — per-variant env_cfg factories
+- `src/tasks/velocity/config/go2/__init__.py` — task registrations
 
-| | Standard Go2 | Electric (Python ODE) | Native Electric (MuJoCo act) |
-|---|---|---|---|
-| Task ID | `Unitree-Go2-Flat` | `Unitree-Go2-Flat-Electric` | `Unitree-Go2-Flat-Native-Electric` |
-| Actuator | PD control | Backward Euler 2×2 ODE | MuJoCo `filterexact` + sub-stepping |
-| Current state | N/A | Python tensor | MuJoCo `d->act` (engine-integrated) |
-| Implicit Jacobian | N/A | N/A | $\partial\dot{I}/\partial I = -R/L$ ✓ |
-| GPU (mujoco_warp) | ✓ | ✓ | ✓ |
+**Variants (`method` parameter ↔ `dynprm[4]`):**
 
-Training:
+| Task ID | `method` | $\beta_{\text{int}}$ (integrator) | $\beta_{\text{imp}}$ (Schur/Force RHS) | τ-tracking loop |
+|---|---|---|---|---|
+| `Unitree-Go2-Flat` | n/a — builtin PD only | n/a | n/a | n/a |
+| `Unitree-Go2-Flat-Coupled-Electric` | `A+` (default) | $\exp(-h/\tau)$ — ZOH | $\exp(-h/\tau)$ — ZOH | off |
+| `Unitree-Go2-Flat-Coupled-Tloop-Electric` | `A+` | $\exp(-h/\tau)$ | $\exp(-h/\tau)$ | on (Ki=200) |
+| `Unitree-Go2-Flat-MethodA-Electric` | `A` | $1/(1+h/\tau)$ — BE | $1/(1+h/\tau)$ — BE | off |
+| `Unitree-Go2-Flat-MethodB-Electric` | `B` | $\exp(-h/\tau)$ — ZOH | $1/(1+h/\tau)$ — BE | off |
+
+See `docs/native_electric_actuator_reference.md` for the full reference.
+
+Training (any electric variant):
 ```bash
-python scripts/train.py Unitree-Go2-Flat-Native-Electric --env.scene.num-envs=4096
+python scripts/train.py Unitree-Go2-Flat-Coupled-Electric --env.scene.num-envs=4096
 ```
 
-### 3. Motor Tracking Visualization
+### 2. Motor Tracking Visualization
 
-`scripts/plot_electric_motor.py` generates per-joint plots for both Electric and Native-Electric actuators. Physics dt and decimation are auto-detected from the task config.
+`scripts/plot_electric_motor.py` generates per-joint plots for any of the electric-motor variants above. Physics dt and decimation are auto-detected from the task config.
 
 ```bash
 python scripts/plot_electric_motor.py <TASK_ID> \
@@ -326,14 +318,14 @@ python scripts/plot_electric_motor.py <TASK_ID> \
 
 Example:
 ```bash
-python scripts/plot_electric_motor.py Unitree-Go2-Flat-Native-Electric \
+python scripts/plot_electric_motor.py Unitree-Go2-Flat-Coupled-Electric \
     --checkpoint-file logs/rsl_rl/go2_velocity/2026-04-01/model_5000.pt \
     --joints FR_hip_joint,FR_thigh_joint,FR_calf_joint \
     --vx 0.5 --vy 0.0 --wz 0.0 \
     --plots 2,5,8 --tag forward_05
 ```
 
-### 4. Play Script Improvements
+### 3. Play Script Improvements
 
 Added two options to `scripts/play.py`:
 

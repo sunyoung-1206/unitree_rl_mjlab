@@ -114,8 +114,6 @@ CALF: `effort_limit = saturation_effort = 45.0, armature = 0.02`.
 | 그룹 | 클래스 | 핵심 차이 | substeps / pd_substeps | 팩토리 |
 |---|---|---|---|---|
 | `GO2_ACTUATOR_*` | `BuiltinPositionActuatorCfg` | 기본 PD only (전기 ODE 없음) | n/a | `get_go2_robot_cfg()` |
-| `GO2_ELECTRIC_*` | `ElectricMotorActuatorCfg` | Python BE ODE → ctrl=motor (구버전) | n/a | `get_go2_electric_robot_cfg()` |
-| `GO2_NATIVE_ELECTRIC_*` | `NativeElectricActuatorCfg` | filterexact, no coupling | 50 / 0 | `get_go2_native_electric_robot_cfg()` |
 | `GO2_COUPLED_ELECTRIC_*` | `NativeElectricActuatorCfg` | `use_coupled=True`, `method="A+"` (default) | 200 / 50 | `get_go2_coupled_electric_robot_cfg()` |
 | `GO2_METHODA_*` | `NativeElectricActuatorCfg` | `use_coupled=True`, `method="A"` | 200 / 50 | `get_go2_methoda_robot_cfg()` |
 | `GO2_METHODB_*` | `NativeElectricActuatorCfg` | `use_coupled=True`, `method="B"` (GPU 전용) | 200 / 50 | `get_go2_methodb_robot_cfg()` |
@@ -135,8 +133,6 @@ CALF: `effort_limit = saturation_effort = 45.0, armature = 0.02`.
 |---|---|---|---|
 | `Unitree-Go2-Rough` | `unitree_go2_rough_env_cfg()` | `GO2_ACTUATOR` (PD) | rough terrain |
 | `Unitree-Go2-Flat` | `_go2_flat_pd_cfg()` | `GO2_ACTUATOR` (PD) | dt=5 ms, dec=4, policy 20 ms |
-| `Unitree-Go2-Flat-Electric` | `unitree_go2_flat_electric_env_cfg()` | `GO2_ELECTRIC` (Python ODE) | dt=5 ms, dec=4 |
-| `Unitree-Go2-Flat-Native-Electric` | `unitree_go2_flat_native_electric_env_cfg()` | `GO2_NATIVE_ELECTRIC` | dt=0.1 ms, dec=50, policy 5 ms |
 | `Unitree-Go2-Flat-Coupled-Electric` | `unitree_go2_flat_coupled_electric_env_cfg()` | `GO2_COUPLED_ELECTRIC` (A+) | dt=0.1 ms, dec=200, policy 20 ms |
 | `Unitree-Go2-Flat-Coupled-Tloop-Electric` | `unitree_go2_flat_aplus_tloop_electric_env_cfg()` | `GO2_APLUS_TLOOP` (A+ + integral loop) | dt=0.1 ms, dec=200, policy 20 ms |
 | `Unitree-Go2-Flat-MethodA-Electric` | `unitree_go2_flat_methoda_electric_env_cfg(use_velocity_action=False)` | `GO2_METHODA` | dt=0.1 ms, dec=200 |
@@ -337,7 +333,6 @@ policy step (20 ms) → action(q_des) → 매 5 ms마다:
 | task | dt_physics | decimation | dt_policy | pd_substeps | dt_driver |
 |---|---|---|---|---|---|
 | `Unitree-Go2-Flat` | 5 ms | 4 | 20 ms | n/a | 5 ms (= dt_physics) |
-| `Unitree-Go2-Flat-Native-Electric` | 0.1 ms | 50 | 5 ms | 0 (= policy 경계만) | 5 ms (= dt_policy) |
 | `Unitree-Go2-Flat-Coupled-Electric` | 0.1 ms | 200 | 20 ms | 50 | 5 ms |
 | `Unitree-Go2-Flat-Coupled-Tloop-Electric` | 0.1 ms | 200 | 20 ms | 50 | 5 ms |
 | `Unitree-Go2-Flat-MethodA-Electric` | 0.1 ms | 200 | 20 ms | 50 | 5 ms |

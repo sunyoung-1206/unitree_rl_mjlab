@@ -4,7 +4,7 @@
 tau_des vs tau_applied, I_des vs I 추종 그래프를 출력한다.
 
 사용법:
-  python scripts/plot_electric_motor.py Unitree-Go2-Flat-Electric \
+  python scripts/plot_electric_motor.py Unitree-Go2-Flat-Coupled-Electric \
       --checkpoint-file logs/rsl_rl/.../model_XXXX.pt \
       --num-steps 50 \
       --joints FR_hip_joint,FR_thigh_joint,FR_calf_joint
@@ -53,14 +53,13 @@ class PlotConfig:
 
 
 def get_electric_actuators(env):
-    """env에서 ElectricMotorActuator 또는 NativeElectricActuator 인스턴스 반환."""
-    from src.assets.robots.unitree_go2.electric_actuator import ElectricMotorActuator
+    """env 에서 NativeElectricActuator 인스턴스 반환."""
     from src.assets.robots.unitree_go2.mj_native_electric_actuator import NativeElectricActuator
 
     entity = env.unwrapped.scene["robot"]
     result = []
     for act in entity._custom_actuators:
-        if isinstance(act, (ElectricMotorActuator, NativeElectricActuator)):
+        if isinstance(act, NativeElectricActuator):
             result.append(act)
     return result
 
@@ -103,7 +102,7 @@ def collect_data(task_id: str, cfg: PlotConfig) -> tuple[dict, list[str], float,
     # 액추에이터 찾아서 로깅 시작
     actuators = get_electric_actuators(env)
     if not actuators:
-        raise RuntimeError("ElectricMotorActuator를 env에서 찾을 수 없습니다.")
+        raise RuntimeError("NativeElectricActuator를 env에서 찾을 수 없습니다.")
     for act in actuators:
         act.start_logging()
 
@@ -452,10 +451,10 @@ def main():
 
     all_tasks_raw, remaining = tyro.cli(
         tyro.extras.literal_type_from_choices([
-            "Unitree-Go2-Flat-Electric",
-            "Unitree-Go2-Flat-Native-Electric",
             "Unitree-Go2-Flat-Coupled-Electric",
+            "Unitree-Go2-Flat-Coupled-Tloop-Electric",
             "Unitree-Go2-Flat-MethodA-Electric",
+            "Unitree-Go2-Flat-MethodB-Electric",
         ]),
         add_help=False,
         return_unknown_args=True,
@@ -477,7 +476,7 @@ if __name__ == "__main__":
     from mjlab.tasks.registry import list_tasks
 
     if len(sys.argv) < 2 or sys.argv[1] not in list_tasks():
-        print("사용법: python scripts/plot_electric_motor.py Unitree-Go2-Flat-Electric --checkpoint-file <path>")
+        print("사용법: python scripts/plot_electric_motor.py Unitree-Go2-Flat-Coupled-Electric --checkpoint-file <path>")
         sys.exit(1)
 
     task_id = sys.argv[1]

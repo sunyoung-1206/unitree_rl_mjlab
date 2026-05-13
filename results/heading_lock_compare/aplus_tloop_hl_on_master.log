@@ -1,0 +1,22 @@
+[1/7] start: 15:17:16
+[START] aplus_tloop_ki000_healthy
+[1/7] done:  15:24:07
+[2/7] start: 15:24:07
+[START] aplus_tloop_ki000_RR_0.95
+[2/7] done:  15:32:01
+[3/7] start: 15:32:01
+[START] aplus_tloop_ki000_RR_0.90
+[3/7] done:  15:39:04
+[4/7] start: 15:39:04
+[START] aplus_tloop_ki000_RR_0.85
+[4/7] done:  15:46:14
+[5/7] start: 15:46:14
+[START] aplus_tloop_ki000_RR_0.80
+[5/7] done:  15:54:32
+[6/7] start: 15:54:32
+[START] aplus_tloop_ki000_RR_0.75
+[6/7] done:  16:02:53
+[7/7] start: 16:02:53
+[START] aplus_tloop_ki000_RR_0.70
+[7/7] done:  16:10:41
+=== Ki=0 RR sweep (force-init + heading-lock) done ===

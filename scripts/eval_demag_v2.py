@@ -1,4 +1,4 @@
-"""Demagnetization v2: RR_calf single-motor fault, 4 methods (PD/Native/A/A+).
+"""Demagnetization v2: RR_calf single-motor fault, 3 methods (PD/A/A+).
 
 Usage:
   conda activate mjlab
@@ -33,10 +33,6 @@ TASKS = {
     "PD": {
         "task_id": "Unitree-Go2-Flat",
         "checkpoint": "logs/rsl_rl/demag_v2_PD/2026-04-15_01-06-35_seed42_dt5ms/model_2899.pt",
-    },
-    "Native": {
-        "task_id": "Unitree-Go2-Flat-Native-Electric",
-        "checkpoint": "logs/rsl_rl/demag_v2_Native/2026-04-14_22-41-27_seed42/model_2899.pt",
     },
     "MethodA": {
         "task_id": "Unitree-Go2-Flat-MethodA-Electric",

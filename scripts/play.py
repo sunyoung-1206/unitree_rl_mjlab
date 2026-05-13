@@ -43,6 +43,20 @@ class PlayConfig:
   wz: float | None = None
   """요(yaw) 각속도 명령 [rad/s]. 미지정 시 env 설정 범위에서 랜덤 샘플링."""
 
+  # 결정론적 초기조건 — 모든 reset 후 (pos=(0,0,h), quat=identity, vel=0, joint=default) 강제
+  zero_init: bool = False
+  """True 면 매 reset 후 결정론적 0-state 적용 (좌표 / 자세 / 속도 모두). seed 통제 시 권장."""
+
+  # Heading-lock 모드 (vx/vy/wz 중 하나라도 지정될 때만 활성)
+  target_heading: float | None = None
+  """초기 target heading [rad]. 미지정 시 첫 step의 base yaw 를 자동 저장."""
+  heading_threshold: float = 0.1
+  """|wz_user| < threshold 면 heading-control, 이상이면 manual [rad/s]."""
+  no_heading_control: bool = False
+  """True 면 mode 분기 없이 wz_user 를 그대로 박음 (기존 동작, 비교 실험용)."""
+  debug_cmd: bool = False
+  """50 step 마다 mode/cmd/heading 상태를 stdout 으로 출력."""
+
   # 수집할 스텝 수 (지정 시 해당 스텝만큼 실행 후 자동 종료)
   num_steps: int | None = None
   """실행할 policy step 수. 미지정 시 창을 닫을 때까지 무한 실행."""
@@ -52,30 +66,20 @@ class PlayConfig:
 
 
 def _apply_fixed_velocity(env, cfg: PlayConfig, device: str) -> None:
-  """--vx/--vy/--wz로 지정된 값을 twist 커맨드에 고정하고 resampling을 비활성화."""
-  from mjlab.tasks.velocity.mdp.velocity_command import UniformVelocityCommand
+  """`src.utils.heading_lock.apply_heading_lock_velocity` 로 위임 (공통 헬퍼)."""
+  from src.utils.heading_lock import apply_heading_lock_velocity
 
-  try:
-    term = env.command_manager.get_term("twist")
-  except Exception:
-    print("[WARN] 'twist' 커맨드 term을 찾을 수 없어 --vx/--vy/--wz 무시됨")
-    return
-
-  if not isinstance(term, UniformVelocityCommand):
-    print("[WARN] 'twist' term이 UniformVelocityCommand가 아님 → 무시됨")
-    return
-
-  vx = cfg.vx if cfg.vx is not None else 0.0
-  vy = cfg.vy if cfg.vy is not None else 0.0
-  wz = cfg.wz if cfg.wz is not None else 0.0
-
-  fixed = torch.tensor([[vx, vy, wz]], device=device)
-  term.vel_command_b[:] = fixed
-
-  # resampling 비활성화: 랜덤 샘플링 없이 지정 속도를 유지
-  term._resample_command = lambda env_ids: None
-
-  print(f"[INFO] 고정 속도 명령: vx={vx:+.2f}  vy={vy:+.2f}  wz={wz:+.2f}")
+  apply_heading_lock_velocity(
+    env,
+    vx=float(cfg.vx) if cfg.vx is not None else 0.0,
+    vy=float(cfg.vy) if cfg.vy is not None else 0.0,
+    wz=float(cfg.wz) if cfg.wz is not None else 0.0,
+    target_heading=cfg.target_heading,
+    heading_threshold=cfg.heading_threshold,
+    no_heading_control=cfg.no_heading_control,
+    debug_cmd=cfg.debug_cmd,
+    device=device,
+  )
 
 
 def run_play(task_id: str, cfg: PlayConfig):
@@ -159,6 +163,11 @@ def run_play(task_id: str, cfg: PlayConfig):
       "[WARN] Video recording with dummy agents is disabled (no checkpoint/log_dir)."
     )
   env = ManagerBasedRlEnv(cfg=env_cfg, device=device, render_mode=render_mode)
+
+  # 결정론적 초기조건 — _reset_idx 패치라 이후 모든 reset 자동 적용
+  if cfg.zero_init:
+    from src.utils.init_state import apply_zero_initial_state
+    apply_zero_initial_state(env)
 
   # 고정 속도 명령 설정 (--vx / --vy / --wz 중 하나라도 지정된 경우)
   if any(v is not None for v in (cfg.vx, cfg.vy, cfg.wz)):

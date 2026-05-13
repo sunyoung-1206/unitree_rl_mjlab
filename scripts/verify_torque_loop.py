@@ -36,7 +36,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # ---------------------------------------------------------------------------
-# Go2 hip parameters (match go2_constants.py: GO2_NATIVE_ELECTRIC_HIP)
+# Go2 hip parameters (match go2_constants.py: GO2_COUPLED_ELECTRIC_HIP)
 # ---------------------------------------------------------------------------
 KT_NOM = 0.128
 KE_NOM = 0.128
@@ -54,7 +54,7 @@ SUBSTEPS = int(round(DRIVER_DT / PHYSICS_DT))  # 50
 J_INERTIA = 0.06
 B_DAMPING = 0.05
 
-# PD gains (match GO2_NATIVE_ELECTRIC_HIP)
+# PD gains (match GO2_COUPLED_ELECTRIC_HIP)
 KP = 20.0
 KD = 1.0
 

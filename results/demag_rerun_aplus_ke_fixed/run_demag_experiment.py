@@ -170,12 +170,28 @@ def quat_wxyz_to_rpy_zyx_intrinsic(q: np.ndarray) -> np.ndarray:
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────
-def apply_fixed_velocity(env, device, vx=0.5, vy=0.0, wz=0.0) -> None:
-    from mjlab.tasks.velocity.mdp.velocity_command import UniformVelocityCommand
-    term = env.command_manager.get_term("twist")
-    if isinstance(term, UniformVelocityCommand):
-        term.vel_command_b[:] = torch.tensor([[vx, vy, wz]], device=device)
-        term._resample_command = lambda env_ids: None
+def apply_fixed_velocity(env, device, vx=0.5, vy=0.0,
+                          target_heading=None,
+                          no_heading_control=False,
+                          debug_cmd=False) -> None:
+    """Twist 커맨드에 vx/vy 를 고정하고 wz 는 라이브러리 heading-control 에 위임.
+
+    공통 헬퍼는 `src.utils.heading_lock.apply_heading_lock_velocity` 에 있음.
+
+    Args:
+        target_heading: None → 첫 step 의 base yaw 자동 캡처 (auto mode).
+                        float → 명시적 target [rad] (explicit mode).
+        no_heading_control: True → 구 동작(wz=0 고정, is_heading_env=False) fallback.
+    """
+    from src.utils.heading_lock import apply_heading_lock_velocity
+    apply_heading_lock_velocity(
+        env,
+        vx=vx, vy=vy, wz=0.0,
+        target_heading=target_heading,
+        no_heading_control=no_heading_control,
+        debug_cmd=debug_cmd,
+        device=device,
+    )
 
 
 def load_policy(task_id, checkpoint, env, device):
@@ -312,7 +328,7 @@ def run_one(args) -> None:
     else:
         print("[INFO] PD baseline — no demag applied.")
 
-    apply_fixed_velocity(env, device, vx=args.vx, vy=args.vy, wz=args.wz)
+    # apply_fixed_velocity 는 wrapped.reset() 후로 미룸 (force-init 다음에).
 
     agent_cfg = load_rl_cfg(info["task_id"])
     wrapped = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
@@ -375,7 +391,20 @@ def run_one(args) -> None:
     cmd_vel    = np.zeros((N, 3),  dtype=np.float32)
     frames: list[np.ndarray] = []
 
+    # 결정론적 초기조건 — `_reset_idx` 패치라 wrapped.reset() 후 자동 적용.
+    from src.utils.init_state import apply_zero_initial_state
+    apply_zero_initial_state(env, verbose=True)
+
     obs, _ = wrapped.reset()
+    _tgt = args.target_heading
+    if _tgt is not None and np.isnan(_tgt):
+        _tgt = None
+    apply_fixed_velocity(
+        env, device, vx=args.vx, vy=args.vy,
+        target_heading=_tgt,
+        no_heading_control=args.no_heading_control,
+        debug_cmd=args.debug_cmd,
+    )
     dynprm3_at_rollout_start = env.sim.mj_model.actuator_dynprm[:, 3].copy()
     assert np.allclose(dynprm3_at_rollout_start, dynprm3_at_build), (
         f"dynprm[:, 3] modified between build and rollout start! "
@@ -491,6 +520,11 @@ def run_one(args) -> None:
             "if True, the t=0 action was held for all subsequent steps. Policy "
             "GRU continued to update with current obs but its output was ignored. "
             "Used to isolate inner integrator from outer-loop forcing time variation."),
+        "heading_mode": ("none" if args.no_heading_control
+                          else ("explicit" if args.target_heading is not None
+                                else "auto")),
+        "target_heading": (float(args.target_heading)
+                            if args.target_heading is not None else None),
         "ki_override": (float(args.ki_override) if args.ki_override is not None else None),
         "integral_max_override": (float(args.integral_max_override)
                                    if args.integral_max_override is not None else None),
@@ -580,7 +614,15 @@ def main():
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--vx", type=float, default=0.5)
     parser.add_argument("--vy", type=float, default=0.0)
-    parser.add_argument("--wz", type=float, default=0.0)
+    parser.add_argument("--wz", type=float, default=0.0,
+                        help="DEPRECATED: heading-lock 활성 시 무시됨.")
+    parser.add_argument("--target-heading", type=float, default=0.0,
+                        help="heading-lock target [rad]. 기본 0.0 (force-init 일치). "
+                             "auto 모드는 'nan' 입력.")
+    parser.add_argument("--no-heading-control", action="store_true",
+                        help="구 동작(wz=0 고정) fallback. 비교 실험용.")
+    parser.add_argument("--debug-cmd", action="store_true",
+                        help="50 step 마다 mode/cmd/yaw 상태 stdout.")
     parser.add_argument("--device", default=None)
     parser.add_argument("--output-dir", default="results/demag_rerun")
     parser.add_argument("--video-width", type=int, default=640)

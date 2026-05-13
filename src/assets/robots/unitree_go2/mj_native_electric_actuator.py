@@ -230,16 +230,13 @@ def uninstall_act_dyn_callback() -> None:
 class NativeElectricActuator(DcMotorActuator):
     """MuJoCo-native 전기모터 액추에이터.
 
-    MuJoCo의 act 필드를 전류 I로 사용하여 엔진 내부에서 전기 ODE를 적분.
+    MuJoCo 의 act 필드를 전류 I 로 사용하여 엔진 내부에서 전기 ODE 를 적분.
 
-    vs ElectricMotorActuator (기존):
-      기존: Python에서 Backward Euler ODE → τ_out → data.ctrl (motor)
-      신규: data.ctrl = 제어입력 → MuJoCo act filter/callback → force = Kt·gr·I
-
-    핵심 차이:
-      • I가 MuJoCo state (d->act)의 일부 → 체크포인트/리셋 자동 처리
-      • filterexact: MuJoCo implicit solver에 ∂act_dot/∂act = −R/L 포함
-      • force 계산이 MuJoCo 내부에서 처리 (gain × act)
+    핵심 특성:
+      • data.ctrl = 제어입력 → MuJoCo act filter → force = Kt·gr·I
+      • I 가 MuJoCo state (d->act) 의 일부 → 체크포인트/리셋 자동 처리
+      • filterexact: implicit solver 에 ∂act_dot/∂act = −R/L 포함
+      • use_coupled=True: cross-Jacobian ∂act_dot/∂qvel = −Ke·gr/L 도 포함 (Schur complement)
     """
 
     def __init__(

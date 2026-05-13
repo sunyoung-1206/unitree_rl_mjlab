@@ -3,8 +3,6 @@ from src.tasks.velocity.rl import VelocityOnPolicyRunner
 
 from .env_cfgs import (
   unitree_go2_flat_env_cfg,
-  unitree_go2_flat_electric_env_cfg,
-  unitree_go2_flat_native_electric_env_cfg,
   unitree_go2_flat_coupled_electric_env_cfg,
   unitree_go2_flat_aplus_tloop_electric_env_cfg,
   unitree_go2_flat_methoda_electric_env_cfg,
@@ -35,22 +33,6 @@ register_mjlab_task(
   task_id="Unitree-Go2-Flat",
   env_cfg=_go2_flat_pd_cfg(),
   play_env_cfg=_go2_flat_pd_cfg(play=True),
-  rl_cfg=unitree_go2_ppo_runner_cfg(),
-  runner_cls=VelocityOnPolicyRunner,
-)
-
-register_mjlab_task(
-  task_id="Unitree-Go2-Flat-Electric",
-  env_cfg=unitree_go2_flat_electric_env_cfg(),
-  play_env_cfg=unitree_go2_flat_electric_env_cfg(play=True),
-  rl_cfg=unitree_go2_ppo_runner_cfg(),
-  runner_cls=VelocityOnPolicyRunner,
-)
-
-register_mjlab_task(
-  task_id="Unitree-Go2-Flat-Native-Electric",
-  env_cfg=unitree_go2_flat_native_electric_env_cfg(),
-  play_env_cfg=unitree_go2_flat_native_electric_env_cfg(play=True),
   rl_cfg=unitree_go2_ppo_runner_cfg(),
   runner_cls=VelocityOnPolicyRunner,
 )

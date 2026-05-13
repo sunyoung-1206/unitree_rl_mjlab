@@ -1,4 +1,4 @@
-"""Analyze demagnetization v2: RR_calf single-motor fault, 4 methods.
+"""Analyze demagnetization v2: RR_calf single-motor fault, 3 methods.
 
 Usage:
   python scripts/analyze_demag_v2.py
@@ -26,12 +26,12 @@ DATA_DIR = Path("results/demagnetization_v2")
 FIG_DIR = DATA_DIR / "figures"
 FIG_DIR.mkdir(parents=True, exist_ok=True)
 
-METHODS = ["PD", "Native", "MethodA", "Aplus"]
+METHODS = ["PD", "MethodA", "Aplus"]
 DEMAGS = [1.0, 0.8, 0.6, 0.4]
-COLORS = {"PD": "gray", "Native": "tab:red", "MethodA": "tab:blue", "Aplus": "tab:green"}
-LSTYLES = {"PD": "--", "Native": "-.", "MethodA": "-", "Aplus": "-"}
-MARKERS = {"PD": "s", "Native": "^", "MethodA": "o", "Aplus": "D"}
-LABELS = {"PD": "PD", "Native": "Native", "MethodA": "Method A (IE)", "Aplus": "Method A+ (FE)"}
+COLORS = {"PD": "gray", "MethodA": "tab:blue", "Aplus": "tab:green"}
+LSTYLES = {"PD": "--", "MethodA": "-", "Aplus": "-"}
+MARKERS = {"PD": "s", "MethodA": "o", "Aplus": "D"}
+LABELS = {"PD": "PD", "MethodA": "Method A (IE)", "Aplus": "Method A+ (FE)"}
 
 
 def load_data(method, demag):
