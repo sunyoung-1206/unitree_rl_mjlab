@@ -288,6 +288,37 @@ def unitree_go2_flat_methoda_electric_env_cfg(
   return cfg
 
 
+def unitree_go2_flat_methoda_electric_phase1_env_cfg(
+  play: bool = False,
+  use_velocity_action: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """MethodA-Electric Phase 1: no extra DR events.
+
+  Identical to ``unitree_go2_flat_methoda_electric_env_cfg`` (real motor params,
+  obs delay/history=5) except the seven sim2real-DR-v1 event terms are removed
+  and foot_friction range is restored to the original (0.3, 1.2).
+
+  Use this for the first 2000 iterations of a two-phase sim2real curriculum.
+  Resume Phase 1's final checkpoint from ``Unitree-Go2-Flat-MethodA-Electric``
+  (full DR) for Phase 2.
+  """
+  cfg = unitree_go2_flat_methoda_electric_env_cfg(
+    play=play, use_velocity_action=use_velocity_action,
+  )
+  for evt in (
+    "randomize_V_bus",
+    "randomize_actuator_gains",
+    "randomize_motor_strength",
+    "randomize_base_mass",
+    "randomize_link_mass",
+    "joint_pos_bias",
+    "external_force_torque",
+  ):
+    cfg.events.pop(evt, None)
+  cfg.events["foot_friction"].params["ranges"] = (0.3, 1.2)
+  return cfg
+
+
 def unitree_go2_flat_aplus_tloop_electric_env_cfg(
   play: bool = False,
 ) -> ManagerBasedRlEnvCfg:
