@@ -7,6 +7,7 @@ from .env_cfgs import (
   unitree_go2_flat_aplus_tloop_electric_env_cfg,
   unitree_go2_flat_methoda_electric_env_cfg,
   unitree_go2_flat_methoda_electric_phase1_env_cfg,
+  unitree_go2_flat_methoda_electric_playpd_env_cfg,
   unitree_go2_flat_methodb_electric_env_cfg,
   unitree_go2_rough_env_cfg,
 )
@@ -67,6 +68,23 @@ register_mjlab_task(
     use_velocity_action=_methoda_use_vel,
   ),
   play_env_cfg=unitree_go2_flat_methoda_electric_env_cfg(
+    play=True, use_velocity_action=_methoda_use_vel,
+  ),
+  rl_cfg=unitree_go2_methoda_electric_ppo_runner_cfg(
+    action_type=_METHODA_ACTION_TYPE,
+  ),
+  runner_cls=VelocityOnPolicyRunner,
+)
+
+# PlayPD: fast visualization task for the trained MethodA-Electric checkpoint.
+# Uses builtin PD actuator + 5 ms physics so play runs in real time, but keeps
+# obs delay/history=5 and action scale so the trained checkpoint loads.
+register_mjlab_task(
+  task_id="Unitree-Go2-Flat-MethodA-Electric-PlayPD",
+  env_cfg=unitree_go2_flat_methoda_electric_playpd_env_cfg(
+    use_velocity_action=_methoda_use_vel,
+  ),
+  play_env_cfg=unitree_go2_flat_methoda_electric_playpd_env_cfg(
     play=True, use_velocity_action=_methoda_use_vel,
   ),
   rl_cfg=unitree_go2_methoda_electric_ppo_runner_cfg(

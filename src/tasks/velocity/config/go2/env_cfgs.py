@@ -288,6 +288,45 @@ def unitree_go2_flat_methoda_electric_env_cfg(
   return cfg
 
 
+def unitree_go2_flat_methoda_electric_playpd_env_cfg(
+  play: bool = False,
+  use_velocity_action: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """Fast play env for the MethodA-Electric trained policy.
+
+  Drops the electric-motor actuator + DR randomization to enable real-time
+  visualization. Physics dt = 5 ms, policy dt = 20 ms (builtin PD path).
+  Observation delay / history_length=5 / action scaling are kept identical to
+  the training cfg so the trained checkpoint loads cleanly.
+
+  Visual quality vs. fidelity trade-off:
+    * No current dynamics / V_bus saturation / motor transient.
+    * No domain randomization (clean baseline).
+    * Same PD gains (kp 20/20/40, kd 1/1/2) so joint behaviour is close to the
+      training environment in steady state.
+
+  Intended for ``scripts/play.py`` only — do not train with this task.
+  """
+  cfg = unitree_go2_flat_methoda_electric_env_cfg(
+    play=play, use_velocity_action=use_velocity_action,
+  )
+  cfg.scene.entities = {"robot": get_go2_robot_cfg()}
+  cfg.sim.mujoco.timestep = 0.005   # 5 ms physics
+  cfg.decimation = 4                # 20 ms policy
+  for evt in (
+    "randomize_V_bus",
+    "randomize_actuator_gains",
+    "randomize_motor_strength",
+    "randomize_base_mass",
+    "randomize_link_mass",
+    "joint_pos_bias",
+    "external_force_torque",
+  ):
+    cfg.events.pop(evt, None)
+  cfg.events["foot_friction"].params["ranges"] = (0.3, 1.2)
+  return cfg
+
+
 def unitree_go2_flat_methoda_electric_phase1_env_cfg(
   play: bool = False,
   use_velocity_action: bool = False,
