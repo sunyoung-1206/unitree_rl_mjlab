@@ -140,37 +140,47 @@ def get_go2_robot_cfg() -> EntityCfg:
   )
 
 ##
-# Coupled electric motor actuator config (Python callback: dyntype=user)
-# callback에서 dI/dt = (V - R·I - Ke·gr·ω) / L 을 직접 계산
-# filterexact와 달리 back-EMF가 act_dot에 포함되어 물리적으로 정확
-# 단, mujoco_warp (GPU) 미지원 → standard mujoco (CPU) 전용
+# Electric motor configs (mujoco_warp filterexact_coupled / GPU-only)
 ##
 
 _COUPLED_SUBSTEPS = 200  # decimation=200 (0.1ms × 200 = 20ms policy dt)
 _PD_RECOMPUTE = 50       # PD 재계산 주기: 5ms / 0.1ms = 50 physics steps
 
+# Shared real-world motor physical parameters for the Unitree Go2.
+# Sourced from the Go2 motor datasheet — used by every Method variant
+# (Coupled/A+, A, B, A+ tloop) so the underlying physics stays consistent.
+# `method` is intentionally NOT included here so each variant can override.
+_GO2_MOTOR_PHYS = dict(
+  Kt=0.26,       # [N·m/A]
+  Ke=0.26,       # [V·s/rad_motor], physically Ke == Kt
+  R=0.66,        # [Ω] (= 1.5 × R_line, Delta wiring)
+  L=83e-6,       # [H] (= 0.5 × L_line, Delta wiring) — τ_e = L/R ≈ 126 µs
+  gear_ratio=6.33,
+  V_bus=30.8,    # [V] (mid-point of 28–33.6 V, randomized by sim2real DR)
+  substeps=_COUPLED_SUBSTEPS,
+  pd_substeps=_PD_RECOMPUTE,
+  use_coupled=True,
+)
+
+
+# Coupled electric motor (default method=A+/ZOH on patched mjwarp).
 GO2_COUPLED_ELECTRIC_HIP = NativeElectricActuatorCfg(
   target_names_expr=(".*hip_.*",),
   stiffness=20.0, damping=1.0, effort_limit=23.5, saturation_effort=23.5,
   velocity_limit=30.0, armature=0.01,
-  Kt=0.128, Ke=0.128, R=0.3, L=1e-4, gear_ratio=6.33,
-  substeps=_COUPLED_SUBSTEPS, pd_substeps=_PD_RECOMPUTE, use_coupled=True,
+  **_GO2_MOTOR_PHYS,
 )
-
 GO2_COUPLED_ELECTRIC_THIGH = NativeElectricActuatorCfg(
   target_names_expr=(".*thigh_.*",),
   stiffness=20.0, damping=1.0, effort_limit=23.5, saturation_effort=23.5,
   velocity_limit=30.0, armature=0.01,
-  Kt=0.128, Ke=0.128, R=0.3, L=1e-4, gear_ratio=6.33,
-  substeps=_COUPLED_SUBSTEPS, pd_substeps=_PD_RECOMPUTE, use_coupled=True,
+  **_GO2_MOTOR_PHYS,
 )
-
 GO2_COUPLED_ELECTRIC_CALF = NativeElectricActuatorCfg(
   target_names_expr=(".*calf_.*",),
   stiffness=40.0, damping=2.0, effort_limit=45.0, saturation_effort=45.0,
   velocity_limit=30.0, armature=0.02,
-  Kt=0.128, Ke=0.128, R=0.3, L=1e-4, gear_ratio=6.33,
-  substeps=_COUPLED_SUBSTEPS, pd_substeps=_PD_RECOMPUTE, use_coupled=True,
+  **_GO2_MOTOR_PHYS,
 )
 
 GO2_COUPLED_ELECTRIC_ARTICULATION = EntityArticulationInfoCfg(
@@ -184,10 +194,7 @@ GO2_COUPLED_ELECTRIC_ARTICULATION = EntityArticulationInfoCfg(
 
 
 # Method A (BE consistent: integrator/Schur/Force 전부 β_be = 1/(1+h/τ)).
-_MA_MOTOR = dict(Kt=0.26, Ke=0.26, R=0.66, L=83e-6, gear_ratio=6.33,
-                 V_bus=30.8,
-                 substeps=_COUPLED_SUBSTEPS, pd_substeps=_PD_RECOMPUTE,
-                 use_coupled=True, method="A")
+_MA_MOTOR = dict(**_GO2_MOTOR_PHYS, method="A")
 GO2_METHODA_HIP = NativeElectricActuatorCfg(
   target_names_expr=(".*hip_.*",), stiffness=20.0, damping=1.0,
   effort_limit=23.5, saturation_effort=23.5, velocity_limit=30.0, armature=0.01, **_MA_MOTOR)
@@ -214,9 +221,7 @@ def get_go2_methoda_robot_cfg() -> EntityCfg:
 
 
 # Method B (ZOH integrator + BE Schur/Force RHS). GPU 전용 (mjwarp patched).
-_MB_MOTOR = dict(Kt=0.128, Ke=0.128, R=0.3, L=1e-4, gear_ratio=6.33,
-                 substeps=_COUPLED_SUBSTEPS, pd_substeps=_PD_RECOMPUTE,
-                 use_coupled=True, method="B")
+_MB_MOTOR = dict(**_GO2_MOTOR_PHYS, method="B")
 GO2_METHODB_HIP = NativeElectricActuatorCfg(
   target_names_expr=(".*hip_.*",), stiffness=20.0, damping=1.0,
   effort_limit=23.5, saturation_effort=23.5, velocity_limit=30.0, armature=0.01, **_MB_MOTOR)
@@ -249,9 +254,8 @@ def get_go2_methodb_robot_cfg() -> EntityCfg:
 #   * gait period 600 ms 유지 (K_i≥400 에선 보행 망가짐)
 #   * cap usage ≤ 58 % at α=0.2 (K_i=100 의 97% → K_i=200 의 58% 마진 확보)
 _APLUS_TLOOP_MOTOR = dict(
-  Kt=0.128, Ke=0.128, R=0.3, L=1e-4, gear_ratio=6.33,
-  substeps=_COUPLED_SUBSTEPS, pd_substeps=_PD_RECOMPUTE,
-  use_coupled=True, method="A+",
+  **_GO2_MOTOR_PHYS,
+  method="A+",
   use_torque_loop=True, Ki=200.0, integral_max=0.5,
 )
 GO2_APLUS_TLOOP_HIP = NativeElectricActuatorCfg(
