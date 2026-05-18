@@ -6,7 +6,7 @@ from .env_cfgs import (
   unitree_go2_flat_coupled_electric_env_cfg,
   unitree_go2_flat_aplus_tloop_electric_env_cfg,
   unitree_go2_flat_methoda_electric_env_cfg,
-  unitree_go2_flat_methoda_electric_phase1_env_cfg,
+  unitree_go2_flat_methoda_electric_sim2real_env_cfg,
   unitree_go2_flat_methoda_electric_playpd_env_cfg,
   unitree_go2_flat_methodb_electric_env_cfg,
   unitree_go2_rough_env_cfg,
@@ -62,6 +62,9 @@ register_mjlab_task(
 _METHODA_ACTION_TYPE = "position"  # or "velocity"
 _methoda_use_vel = _METHODA_ACTION_TYPE == "velocity"
 
+# Base electric task: real motor params (Kt/Ke/R/L/V_bus) + obs delay/history=5,
+# but no extra sim2real DR events on top of the velocity_env_cfg baseline DR.
+# Train this for ~2000 iterations as Phase 1 of the two-phase sim2real curriculum.
 register_mjlab_task(
   task_id="Unitree-Go2-Flat-MethodA-Electric",
   env_cfg=unitree_go2_flat_methoda_electric_env_cfg(
@@ -76,15 +79,16 @@ register_mjlab_task(
   runner_cls=VelocityOnPolicyRunner,
 )
 
-# PlayPD: fast visualization task for the trained MethodA-Electric checkpoint.
-# Uses builtin PD actuator + 5 ms physics so play runs in real time, but keeps
-# obs delay/history=5 and action scale so the trained checkpoint loads.
+# sim2real-DR-v1 expansions added on top of the base electric task: V_bus,
+# actuator gains, motor strength, base/link mass, joint_pos_bias, external
+# force/torque + widened foot_friction. Phase 2 of the curriculum: resume the
+# base task's final checkpoint into this task for another ~2000 iter.
 register_mjlab_task(
-  task_id="Unitree-Go2-Flat-MethodA-Electric-PlayPD",
-  env_cfg=unitree_go2_flat_methoda_electric_playpd_env_cfg(
+  task_id="Unitree-Go2-Flat-MethodA-Electric-Sim2Real",
+  env_cfg=unitree_go2_flat_methoda_electric_sim2real_env_cfg(
     use_velocity_action=_methoda_use_vel,
   ),
-  play_env_cfg=unitree_go2_flat_methoda_electric_playpd_env_cfg(
+  play_env_cfg=unitree_go2_flat_methoda_electric_sim2real_env_cfg(
     play=True, use_velocity_action=_methoda_use_vel,
   ),
   rl_cfg=unitree_go2_methoda_electric_ppo_runner_cfg(
@@ -93,16 +97,15 @@ register_mjlab_task(
   runner_cls=VelocityOnPolicyRunner,
 )
 
-# Phase 1 of two-phase sim2real curriculum: identical to the full MethodA-Electric
-# task but with the seven sim2real-DR-v1 event terms disabled. Train this for
-# ~2000 iterations, then resume from its checkpoint into Unitree-Go2-Flat-MethodA-Electric
-# (full DR) for Phase 2.
+# PlayPD: fast visualization task for any MethodA-Electric checkpoint (base or
+# Sim2Real). Uses builtin PD actuator + 5 ms physics so play runs in real time,
+# keeps obs delay/history=5 and action scaling so checkpoints load.
 register_mjlab_task(
-  task_id="Unitree-Go2-Flat-MethodA-Electric-Phase1",
-  env_cfg=unitree_go2_flat_methoda_electric_phase1_env_cfg(
+  task_id="Unitree-Go2-Flat-MethodA-Electric-PlayPD",
+  env_cfg=unitree_go2_flat_methoda_electric_playpd_env_cfg(
     use_velocity_action=_methoda_use_vel,
   ),
-  play_env_cfg=unitree_go2_flat_methoda_electric_phase1_env_cfg(
+  play_env_cfg=unitree_go2_flat_methoda_electric_playpd_env_cfg(
     play=True, use_velocity_action=_methoda_use_vel,
   ),
   rl_cfg=unitree_go2_methoda_electric_ppo_runner_cfg(

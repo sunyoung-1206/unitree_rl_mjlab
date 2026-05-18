@@ -163,18 +163,21 @@ def unitree_go2_flat_methoda_electric_env_cfg(
   play: bool = False,
   use_velocity_action: bool = False,
 ) -> ManagerBasedRlEnvCfg:
-  """Go2 flat terrain + Method A (BE integrator + BE Schur + BE Force RHS).
+  """Go2 flat terrain + Method A electric motor (BE integrator + BE Schur + BE Force RHS).
 
   Physics dt = 0.1ms, policy dt = 20ms (decimation=200).
   PD/tau target 재계산 주기 = 5ms → policy dt 안에서 4회 업데이트 (pd_substeps=50).
   dynprm[4] = 0 → β_int = β_imp = 1/(1+h/τ) on patched mjwarp.
 
-  sim2real-DR-v1 additions (relative to base velocity cfg):
-    * observation actor group: history_length=5; obs delay 0..4 steps on
-      base_ang_vel / projected_gravity / joint_pos / joint_vel.
-    * events: V_bus / actuator_gain / motor_strength / base_mass / link_mass /
-      joint_pos_bias / external_force_torque randomization; widened
-      foot_friction range.
+  Real-world motor parameters (Kt 0.26 N·m/A, V_bus 30.8 V, R 0.66 Ω,
+  L 83 µH) via ``GO2_METHODA_ARTICULATION``. Observation actor group uses
+  history_length=5 with per-term delay 0..4 steps on base_ang_vel /
+  projected_gravity / joint_pos / joint_vel.
+
+  Baseline domain randomization (foot_friction 0.3..1.2, encoder_bias,
+  base_com, push_robot) is inherited from velocity_env_cfg. For the extended
+  sim2real DR variant, use
+  ``unitree_go2_flat_methoda_electric_sim2real_env_cfg``.
 
   Args:
     play: play(=eval) 모드 여부.
@@ -204,11 +207,44 @@ def unitree_go2_flat_methoda_electric_env_cfg(
     term.delay_min_lag = 0
     term.delay_max_lag = 4
 
-  # ── Events: widen existing + add 7 new DR terms ──────────────────────
-  # 3-8: widen foot friction range.
+  return cfg
+
+
+def unitree_go2_flat_methoda_electric_sim2real_env_cfg(
+  play: bool = False,
+  use_velocity_action: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """MethodA Electric + sim2real-DR-v1 expansions.
+
+  Adds seven new DR event terms on top of the base electric cfg and widens
+  ``foot_friction`` (0.3, 1.2) → (0.2, 1.5). The base cfg already carries the
+  real motor parameters and obs delay/history.
+
+  Added DR events:
+    * randomize_V_bus              reset    U(28.0, 33.6) V
+    * randomize_actuator_gains     startup  kp & kd log_uniform(0.8, 1.2)
+    * randomize_motor_strength     startup  Kt = Ke shared U(0.9, 1.1)
+                                            → gainprm[0], dynprm[1], dynprm[3]
+    * randomize_base_mass          startup  base_link mass + U(-1.5, 3.0) kg
+    * randomize_link_mass          startup  hip/thigh/calf × U(0.9, 1.1)
+    * joint_pos_bias               startup  +U(-0.03, 0.03) rad on
+                                            default_joint_pos + action _offset
+    * external_force_torque        interval 8~12 s, F ±30 N, τ ±3 N·m on base
+
+  Intended for the "Phase 2" half of a two-phase sim2real curriculum: train
+  ``Unitree-Go2-Flat-MethodA-Electric`` (no extra DR) for ~2000 iter first,
+  then resume into this task for another 2000 iter.
+
+  Args:
+    play: play(=eval) 모드 여부.
+    use_velocity_action: True 시 JointVelocity 액션으로 교체.
+  """
+  cfg = unitree_go2_flat_methoda_electric_env_cfg(
+    play=play, use_velocity_action=use_velocity_action,
+  )
+
   cfg.events["foot_friction"].params["ranges"] = (0.2, 1.5)
 
-  # 3-1: per-env bus voltage on every reset.
   cfg.events["randomize_V_bus"] = EventTermCfg(
     mode="reset",
     func=src_mdp.randomize_V_bus,
@@ -217,8 +253,6 @@ def unitree_go2_flat_methoda_electric_env_cfg(
       "voltage_range": (28.0, 33.6),
     },
   )
-
-  # 3-2: PD gain log-uniform scale ±20 %.
   cfg.events["randomize_actuator_gains"] = EventTermCfg(
     mode="startup",
     func=dr.pd_gains,
@@ -230,8 +264,6 @@ def unitree_go2_flat_methoda_electric_env_cfg(
       "operation": "scale",
     },
   )
-
-  # 3-3: Kt = Ke ±10 % shared scale → gainprm[0], dynprm[1], dynprm[3].
   cfg.events["randomize_motor_strength"] = EventTermCfg(
     mode="startup",
     func=src_mdp.randomize_motor_strength,
@@ -240,8 +272,6 @@ def unitree_go2_flat_methoda_electric_env_cfg(
       "scale_range": (0.9, 1.1),
     },
   )
-
-  # 3-4: base payload ±. mjlab dr.body_mass operation="add".
   cfg.events["randomize_base_mass"] = EventTermCfg(
     mode="startup",
     func=dr.body_mass,
@@ -251,8 +281,6 @@ def unitree_go2_flat_methoda_electric_env_cfg(
       "operation": "add",
     },
   )
-
-  # 3-5: leg link mass scale ±10 %.
   cfg.events["randomize_link_mass"] = EventTermCfg(
     mode="startup",
     func=dr.body_mass,
@@ -262,8 +290,6 @@ def unitree_go2_flat_methoda_electric_env_cfg(
       "operation": "scale",
     },
   )
-
-  # 3-6: joint zero-position bias propagated to action offset.
   cfg.events["joint_pos_bias"] = EventTermCfg(
     mode="startup",
     func=src_mdp.joint_pos_bias,
@@ -272,8 +298,6 @@ def unitree_go2_flat_methoda_electric_env_cfg(
       "bias_range": (-0.03, 0.03),
     },
   )
-
-  # 3-7: external force/torque kicks on base every 8–12 s.
   cfg.events["external_force_torque"] = EventTermCfg(
     mode="interval",
     interval_range_s=(8.0, 12.0),
@@ -294,12 +318,11 @@ def unitree_go2_flat_methoda_electric_playpd_env_cfg(
 ) -> ManagerBasedRlEnvCfg:
   """Fast play env for the MethodA-Electric trained policy.
 
-  Drops the electric-motor actuator + DR randomization to enable real-time
-  visualization. Physics dt = 5 ms, policy dt = 20 ms (builtin PD path).
-  Observation delay / history_length=5 / action scaling are kept identical to
-  the training cfg so the trained checkpoint loads cleanly.
+  Same obs/action space as the training task (so the trained checkpoint loads
+  with ``strict=True``), but swaps the electric-motor actuator for builtin PD
+  with dt = 5 ms / decimation = 4 — real-time visualization on a single GPU.
 
-  Visual quality vs. fidelity trade-off:
+  Visual fidelity trade-off:
     * No current dynamics / V_bus saturation / motor transient.
     * No domain randomization (clean baseline).
     * Same PD gains (kp 20/20/40, kd 1/1/2) so joint behaviour is close to the
@@ -313,48 +336,6 @@ def unitree_go2_flat_methoda_electric_playpd_env_cfg(
   cfg.scene.entities = {"robot": get_go2_robot_cfg()}
   cfg.sim.mujoco.timestep = 0.005   # 5 ms physics
   cfg.decimation = 4                # 20 ms policy
-  for evt in (
-    "randomize_V_bus",
-    "randomize_actuator_gains",
-    "randomize_motor_strength",
-    "randomize_base_mass",
-    "randomize_link_mass",
-    "joint_pos_bias",
-    "external_force_torque",
-  ):
-    cfg.events.pop(evt, None)
-  cfg.events["foot_friction"].params["ranges"] = (0.3, 1.2)
-  return cfg
-
-
-def unitree_go2_flat_methoda_electric_phase1_env_cfg(
-  play: bool = False,
-  use_velocity_action: bool = False,
-) -> ManagerBasedRlEnvCfg:
-  """MethodA-Electric Phase 1: no extra DR events.
-
-  Identical to ``unitree_go2_flat_methoda_electric_env_cfg`` (real motor params,
-  obs delay/history=5) except the seven sim2real-DR-v1 event terms are removed
-  and foot_friction range is restored to the original (0.3, 1.2).
-
-  Use this for the first 2000 iterations of a two-phase sim2real curriculum.
-  Resume Phase 1's final checkpoint from ``Unitree-Go2-Flat-MethodA-Electric``
-  (full DR) for Phase 2.
-  """
-  cfg = unitree_go2_flat_methoda_electric_env_cfg(
-    play=play, use_velocity_action=use_velocity_action,
-  )
-  for evt in (
-    "randomize_V_bus",
-    "randomize_actuator_gains",
-    "randomize_motor_strength",
-    "randomize_base_mass",
-    "randomize_link_mass",
-    "joint_pos_bias",
-    "external_force_torque",
-  ):
-    cfg.events.pop(evt, None)
-  cfg.events["foot_friction"].params["ranges"] = (0.3, 1.2)
   return cfg
 
 
