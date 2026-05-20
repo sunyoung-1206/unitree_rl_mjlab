@@ -1,5 +1,6 @@
 from mjlab.envs import mdp as envs_mdp
 from mjlab.envs.mdp import dr
+from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.event_manager import EventTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.tasks.registry import register_mjlab_task
@@ -187,6 +188,14 @@ def _go2_flat_deploydr_cfg(play: bool = False):
     "velocity_range": (0.0, 0.0),
     "asset_cfg": rj.params["asset_cfg"],
   }
+
+  # ── Phase 3: DR curriculum (단일 스칼라 level, reward EMA 기반 자동 조정) ──
+  # level 이 obs noise scale + push velocity range 에 곱해진다 (level=0.1 에서 시작,
+  # DR 거의 꺼진 상태).
+  cfg.curriculum["deploy_dr"] = CurriculumTermCfg(
+    func=src_mdp.DeployDRCurriculum,
+    params={},  # 기본값은 DeployDRCurriculum.__init__ 의 스펙 그대로.
+  )
 
   return cfg
 
