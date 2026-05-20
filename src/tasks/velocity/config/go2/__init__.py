@@ -262,6 +262,22 @@ register_mjlab_task(
 )
 
 
+# foot_gait 가중치 비교 변종: DeployDR-v0 와 모든 게 동일하되 foot_gait weight 만
+# 0.10 → 0.50. 보행 리듬(트롯) 강제를 더 강하게 했을 때 배포 성능 비교용.
+def _go2_flat_deploydr_gait05_cfg(play: bool = False):
+  cfg = _go2_flat_deploydr_cfg(play=play)
+  cfg.rewards["foot_gait"].weight = 0.50
+  return cfg
+
+register_mjlab_task(
+  task_id="Unitree-Go2-Flat-DeployDR-Gait05-v0",
+  env_cfg=_go2_flat_deploydr_gait05_cfg(),
+  play_env_cfg=_go2_flat_deploydr_gait05_cfg(play=True),
+  rl_cfg=unitree_go2_ppo_runner_cfg(),
+  runner_cls=VelocityOnPolicyRunner,
+)
+
+
 # No-DR clean baseline: DeployDR-v0 와 reward / foot_gait(0.10) / critic obs /
 # reset 설정 전부 동일하되 DR 만 끈 통제 변종. 차이는:
 #   - deploy_dr curriculum level 을 0.0 에 고정 (level_max=0) → obs noise 0, push 0
