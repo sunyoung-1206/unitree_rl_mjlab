@@ -79,3 +79,19 @@ class VelocityOnPolicyRunner(MjlabOnPolicyRunner):
     attach_metadata_to_onnx(onnx_path, metadata)
     if self.logger.logger_type in ["wandb"]:
       wandb.save(policy_path + filename, base_path=os.path.dirname(policy_path))
+
+
+class VelocityFloorClippedRunner(VelocityOnPolicyRunner):
+  # PGTT joystick_base.py:220 mirror — reward = clip(sum(rewards) * dt, 0, 1e4).
+  # Per-term `_episode_sums` (logging) stay unclipped; only the aggregate
+  # returned to PPO is floored at 0 so negative-dominant steps don't bleed into
+  # the advantage estimate.
+  def __init__(self, env, train_cfg, log_dir=None, device="cpu"):
+    super().__init__(env, train_cfg, log_dir, device)
+    rm = self.env.unwrapped.reward_manager
+    _orig_compute = rm.compute
+
+    def _floor_clipped_compute(dt):
+      return torch.clamp(_orig_compute(dt), min=0.0, max=10000.0)
+
+    rm.compute = _floor_clipped_compute
