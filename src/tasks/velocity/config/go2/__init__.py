@@ -126,6 +126,28 @@ register_mjlab_task(
   runner_cls=VelocityOnPolicyRunner,
 )
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Deploy-style DR 실험 task. Isaac Lab deploy baseline의 DR/reward/curriculum
+# 의도를 mjlab API로 이식. 기존 task 는 건드리지 않고 이 task 안에서만 변경한다.
+#
+# Phase 1: DR/reward/obs 모두 기존 Flat(_go2_flat_pd_cfg)과 100% 동일.
+#          단 floor clip 은 미적용 (참조 레포 미사용 + 사용자 지시) →
+#          VelocityOnPolicyRunner 사용.
+# ─────────────────────────────────────────────────────────────────────────────
+def _go2_flat_deploydr_cfg(play: bool = False):
+  cfg = _go2_flat_pd_cfg(play=play)
+  return cfg
+
+register_mjlab_task(
+  task_id="Unitree-Go2-Flat-DeployDR-v0",
+  env_cfg=_go2_flat_deploydr_cfg(),
+  play_env_cfg=_go2_flat_deploydr_cfg(play=True),
+  rl_cfg=unitree_go2_ppo_runner_cfg(),
+  # floor clip 미적용 (참조 레포 + 사용자 지시).
+  runner_cls=VelocityOnPolicyRunner,
+)
+
 register_mjlab_task(
   task_id="Unitree-Go2-Flat-Coupled-Electric",
   env_cfg=unitree_go2_flat_coupled_electric_env_cfg(),
