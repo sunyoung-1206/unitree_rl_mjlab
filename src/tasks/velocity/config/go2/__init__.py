@@ -2,6 +2,7 @@ from mjlab.envs import mdp as envs_mdp
 from mjlab.envs.mdp import dr
 from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.event_manager import EventTermCfg
+from mjlab.managers.observation_manager import ObservationTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.tasks.registry import register_mjlab_task
 import src.tasks.velocity.mdp as src_mdp
@@ -157,8 +158,10 @@ def _go2_flat_deploydr_cfg(play: bool = False):
 
   # push_robot: 5초 고정 간격, 수평 linear 만 ±0.5 (z / 각속도 제거).
   # play 모드에서는 rough cfg 가 push_robot 을 이미 제거하므로 가드.
+  # func 을 logged 버전으로 교체 → Phase 5 critic 의 push_history_xy obs 가 읽음.
   push = cfg.events.get("push_robot")
   if push is not None:
+    push.func = src_mdp.push_by_setting_velocity_logged
     push.interval_range_s = (5.0, 5.0)
     push.params["velocity_range"] = {"x": (-0.5, 0.5), "y": (-0.5, 0.5)}
 
@@ -203,6 +206,28 @@ def _go2_flat_deploydr_cfg(play: bool = False):
   #   reward=mean(stance==contact)*(cmd>thr).  offset [0,0.5,0.5,0] = 대각 trot.
   # → 중복 함수 추가 대신 deploy task 의 weight 만 0.5 → 0.10 으로 조정.
   cfg.rewards["foot_gait"].weight = 0.10
+
+  # ── Phase 5: asymmetric critic — privileged obs 3종 추가 ──────────────────
+  # critic group(enable_corruption=False)에만 추가. actor 는 47D 그대로 유지.
+  # 기존 critic 은 base_lin_vel/foot_height/foot_air_time/foot_contact/
+  # foot_contact_forces 를 이미 가짐 → friction/level/push_history 만 신설.
+  critic_terms = cfg.observations["critic"].terms
+  # base_lin_vel 은 deploy baseline 처럼 ×2 스케일.
+  if "base_lin_vel" in critic_terms:
+    critic_terms["base_lin_vel"].scale = 2.0
+  critic_terms["foot_friction_coeff"] = ObservationTermCfg(
+    func=src_mdp.foot_friction_coeff,
+    params={"asset_cfg": SceneEntityCfg("robot", geom_names=(
+      "FR_foot_collision", "FL_foot_collision",
+      "RR_foot_collision", "RL_foot_collision",
+    ))},
+  )
+  critic_terms["deploy_curriculum_level"] = ObservationTermCfg(
+    func=src_mdp.deploy_curriculum_level,
+  )
+  critic_terms["push_history_xy"] = ObservationTermCfg(
+    func=src_mdp.last_push_xy,
+  )
 
   return cfg
 

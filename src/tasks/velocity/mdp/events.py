@@ -29,6 +29,7 @@ __all__ = (
   "randomize_motor_strength",
   "joint_pos_bias",
   "reset_joints_by_scale",
+  "push_by_setting_velocity_logged",
 )
 
 
@@ -204,3 +205,26 @@ def reset_joints_by_scale(
     env_ids=env_ids,
     joint_ids=joint_ids,
   )
+
+
+def push_by_setting_velocity_logged(
+  env: "ManagerBasedRlEnv",
+  env_ids: torch.Tensor,
+  velocity_range: dict,
+  asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> None:
+  """mjlab push_by_setting_velocity 미러 + 적용한 (x, y) 외란을 env._last_push_xy 에
+  기록 (Phase 5 critic 의 push_history_xy obs 용)."""
+  asset = env.scene[asset_cfg.name]
+  vel_w = asset.data.root_link_vel_w[env_ids]
+  range_list = [
+    velocity_range.get(k, (0.0, 0.0)) for k in ["x", "y", "z", "roll", "pitch", "yaw"]
+  ]
+  ranges = torch.tensor(range_list, device=env.device)
+  sample = sample_uniform(ranges[:, 0], ranges[:, 1], vel_w.shape, device=env.device)
+  vel_w += sample
+  asset.write_root_link_velocity_to_sim(vel_w, env_ids=env_ids)
+
+  if getattr(env, "_last_push_xy", None) is None:
+    env._last_push_xy = torch.zeros((env.num_envs, 2), device=env.device)
+  env._last_push_xy[env_ids] = sample[:, :2]

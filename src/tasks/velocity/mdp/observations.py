@@ -53,3 +53,37 @@ def phase(env: ManagerBasedRlEnv, period: float, command_name: str) -> torch.Ten
     phase = torch.where(stand_mask.unsqueeze(1), torch.zeros_like(phase), phase)
     return phase
 
+
+# ── Phase 5: critic 전용 privileged observations (deploy baseline) ────────────
+def foot_friction_coeff(
+  env: ManagerBasedRlEnv, asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG
+) -> torch.Tensor:
+  """현재 env 의 발 마찰계수 (tangential, axis 0) 평균. [B, 1].
+
+  geom_friction 은 [B, num_geoms, 3] (per-env). asset_cfg.geom_ids 는 global geom
+  index 로 해석됨. critic 이 DR 로 흔들린 마찰을 알 수 있게 제공.
+  """
+  gf = env.sim.model.geom_friction
+  geom_ids = asset_cfg.geom_ids
+  return gf[:, geom_ids, 0].mean(dim=1, keepdim=True)
+
+
+def deploy_curriculum_level(env: ManagerBasedRlEnv) -> torch.Tensor:
+  """DeployDRCurriculum 의 현재 level ∈ [0,1]. [B, 1].
+
+  curriculum 이 env._deploy_dr_level 에 기록 (없으면 0). DR 강도를 critic 에 노출.
+  """
+  lvl = float(getattr(env, "_deploy_dr_level", 0.0))
+  return torch.full((env.num_envs, 1), lvl, device=env.device)
+
+
+def last_push_xy(env: ManagerBasedRlEnv) -> torch.Tensor:
+  """마지막 push 이벤트의 수평 속도 외란 (x, y). [B, 2].
+
+  push_by_setting_velocity_logged 가 env._last_push_xy 에 기록 (없으면 0).
+  """
+  buf = getattr(env, "_last_push_xy", None)
+  if buf is None:
+    return torch.zeros((env.num_envs, 2), device=env.device)
+  return buf
+
