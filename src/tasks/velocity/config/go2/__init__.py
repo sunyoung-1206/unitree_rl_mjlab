@@ -197,6 +197,13 @@ def _go2_flat_deploydr_cfg(play: bool = False):
     params={},  # 기본값은 DeployDRCurriculum.__init__ 의 스펙 그대로.
   )
 
+  # ── Phase 4: foot_gait reward ─────────────────────────────────────────────
+  # 기존 mdp.feet_gait 가 deploy 의 foot_gait 공식과 동일하다:
+  #   phase=(ep_len*dt)%0.6/0.6, leg_phase=(phase+offset)%1, stance=leg_phase<0.56,
+  #   reward=mean(stance==contact)*(cmd>thr).  offset [0,0.5,0.5,0] = 대각 trot.
+  # → 중복 함수 추가 대신 deploy task 의 weight 만 0.5 → 0.10 으로 조정.
+  cfg.rewards["foot_gait"].weight = 0.10
+
   return cfg
 
 register_mjlab_task(
