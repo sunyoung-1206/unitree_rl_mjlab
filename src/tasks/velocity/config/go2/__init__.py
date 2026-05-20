@@ -240,6 +240,30 @@ register_mjlab_task(
   runner_cls=VelocityOnPolicyRunner,
 )
 
+
+# No-DR clean baseline: DeployDR-v0 와 reward / foot_gait(0.10) / critic obs /
+# reset 설정 전부 동일하되 DR 만 끈 통제 변종. 차이는:
+#   - deploy_dr curriculum level 을 0.0 에 고정 (level_max=0) → obs noise 0, push 0
+#   - foot_friction 을 nominal 단일값 (1.0, 1.0) 으로 (startup friction DR 제거)
+# track_linear 절대 갭 측정 + 회귀 테스트용. 삭제 금지.
+def _go2_flat_deploydr_nodr_cfg(play: bool = False):
+  cfg = _go2_flat_deploydr_cfg(play=play)
+  cfg.curriculum["deploy_dr"].params = {
+    "level_init": 0.0,
+    "level_min": 0.0,
+    "level_max": 0.0,  # level 이 절대 오르지 않음 → DR off 유지.
+  }
+  cfg.events["foot_friction"].params["ranges"] = (1.0, 1.0)  # nominal 단일값.
+  return cfg
+
+register_mjlab_task(
+  task_id="Unitree-Go2-Flat-DeployDR-NoDR-v0",
+  env_cfg=_go2_flat_deploydr_nodr_cfg(),
+  play_env_cfg=_go2_flat_deploydr_nodr_cfg(play=True),
+  rl_cfg=unitree_go2_ppo_runner_cfg(),
+  runner_cls=VelocityOnPolicyRunner,
+)
+
 register_mjlab_task(
   task_id="Unitree-Go2-Flat-Coupled-Electric",
   env_cfg=unitree_go2_flat_coupled_electric_env_cfg(),
