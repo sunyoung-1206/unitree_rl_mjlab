@@ -137,6 +137,57 @@ register_mjlab_task(
 # ─────────────────────────────────────────────────────────────────────────────
 def _go2_flat_deploydr_cfg(play: bool = False):
   cfg = _go2_flat_pd_cfg(play=play)
+
+  # ── Phase 2: deploy-style DR (끄기 + 줄이기) ──────────────────────────────
+  # 참조 deploy baseline 은 mass / COM / PD gain / 외력 / encoder bias 를 흔들지
+  # 않는다. 아래 9개 DR 이벤트를 완전히 제거 (DR 강도 ↓ → tracking reward 회복).
+  for _ev in (
+    "randomize_base_mass",
+    "randomize_link_mass",
+    "base_com",
+    "randomize_actuator_gains",
+    "randomize_motor_strength",
+    "randomize_V_bus",
+    "external_force_torque",
+    "encoder_bias",
+    "joint_pos_bias",
+  ):
+    cfg.events.pop(_ev, None)
+
+  # push_robot: 5초 고정 간격, 수평 linear 만 ±0.5 (z / 각속도 제거).
+  # play 모드에서는 rough cfg 가 push_robot 을 이미 제거하므로 가드.
+  push = cfg.events.get("push_robot")
+  if push is not None:
+    push.interval_range_s = (5.0, 5.0)
+    push.params["velocity_range"] = {"x": (-0.5, 0.5), "y": (-0.5, 0.5)}
+
+  # foot_friction: range (0.3, 1.25) 로 통일.
+  # TODO(mjlab): geom_friction 은 num_buckets 미지원 → startup 분포 안정화 불가.
+  # TODO(mjlab): per-env 200-reset 마다 재샘플하는 hybrid 메커니즘 미지원 →
+  #              현재 startup-only. interval mode 커스텀 event 로 추후 구현 가능.
+  cfg.events["foot_friction"].params["ranges"] = (0.3, 1.25)
+
+  # reset_base: 위치 / 요 고정, 초기 속도만 6축 ±0.5 (deploy 의도: 자세는
+  # 일정하게 출발하되 초기 속도 외란으로 강건성 학습).
+  reset_base = cfg.events["reset_base"]
+  reset_base.params["pose_range"] = {
+    "x": (0.0, 0.0), "y": (0.0, 0.0), "z": (0.0, 0.0), "yaw": (0.0, 0.0),
+  }
+  reset_base.params["velocity_range"] = {
+    "x": (-0.5, 0.5), "y": (-0.5, 0.5), "z": (-0.5, 0.5),
+    "roll": (-0.5, 0.5), "pitch": (-0.5, 0.5), "yaw": (-0.5, 0.5),
+  }
+
+  # reset_robot_joints: 초기 자세를 default × U(0.5, 1.5) 로 scale (deploy 의도).
+  # mjlab 기본은 offset 만 제공 → src_mdp.reset_joints_by_scale 로 교체.
+  rj = cfg.events["reset_robot_joints"]
+  rj.func = src_mdp.reset_joints_by_scale
+  rj.params = {
+    "position_range": (0.5, 1.5),
+    "velocity_range": (0.0, 0.0),
+    "asset_cfg": rj.params["asset_cfg"],
+  }
+
   return cfg
 
 register_mjlab_task(

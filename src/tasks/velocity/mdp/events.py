@@ -28,6 +28,7 @@ __all__ = (
   "randomize_V_bus",
   "randomize_motor_strength",
   "joint_pos_bias",
+  "reset_joints_by_scale",
 )
 
 
@@ -155,3 +156,51 @@ def joint_pos_bias(
     offset[env_ids] += bias
   else:
     offset[env_ids] += bias[:, target_ids]
+
+
+def reset_joints_by_scale(
+  env: "ManagerBasedRlEnv",
+  env_ids: torch.Tensor | None,
+  position_range: tuple[float, float],
+  velocity_range: tuple[float, float],
+  asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> None:
+  """Reset joints to ``default * U(position_range)`` (scale 의미).
+
+  mjlab 기본 ``reset_joints_by_offset`` 은 더하기(offset)만 지원한다. deploy
+  baseline 은 곱하기(scale, 예: (0.5, 1.5))로 초기 자세를 흔든다 — 그 의도를
+  이식. soft joint limit 으로 clamp.
+  """
+  env_ids = _resolve_env_ids(env, env_ids)
+  asset = env.scene[asset_cfg.name]
+  default_joint_pos = asset.data.default_joint_pos
+  default_joint_vel = asset.data.default_joint_vel
+  soft_limits = asset.data.soft_joint_pos_limits
+
+  joint_ids = asset_cfg.joint_ids
+  joint_pos = default_joint_pos[env_ids][:, joint_ids].clone()
+  joint_pos *= sample_uniform(
+    torch.tensor(position_range[0], device=env.device),
+    torch.tensor(position_range[1], device=env.device),
+    joint_pos.shape,
+    env.device,
+  )
+  limits = soft_limits[env_ids][:, joint_ids]
+  joint_pos = joint_pos.clamp_(limits[..., 0], limits[..., 1])
+
+  joint_vel = default_joint_vel[env_ids][:, joint_ids].clone()
+  joint_vel += sample_uniform(
+    torch.tensor(velocity_range[0], device=env.device),
+    torch.tensor(velocity_range[1], device=env.device),
+    joint_vel.shape,
+    env.device,
+  )
+
+  if isinstance(joint_ids, list):
+    joint_ids = torch.tensor(joint_ids, device=env.device)
+  asset.write_joint_state_to_sim(
+    joint_pos.view(len(env_ids), -1),
+    joint_vel.view(len(env_ids), -1),
+    env_ids=env_ids,
+    joint_ids=joint_ids,
+  )
