@@ -229,6 +229,27 @@ def _go2_flat_deploydr_cfg(play: bool = False):
     func=src_mdp.last_push_xy,
   )
 
+  # ── 작업 3: action delay + noise term + critic privileged obs 2종 ──────────
+  # joint_pos action 을 delay(ring buffer) + gaussian noise 버전으로 교체.
+  # delay_steps / noise_std 는 DeployDRCurriculum 이 level 로 런타임 set
+  # (level=0 이면 delay=0, noise=0 → 기존 JointPositionAction 과 동일).
+  jp = cfg.actions["joint_pos"]
+  cfg.actions["joint_pos"] = src_mdp.DelayedNoisyJointPositionActionCfg(
+    entity_name=jp.entity_name,
+    actuator_names=jp.actuator_names,
+    scale=jp.scale,
+    use_default_offset=jp.use_default_offset,
+    delay_max_steps=1,     # 참조 레포 스펙 1-step.
+    noise_std_max=0.1,
+  )
+  # critic 에 현재 DR 상태 2개 추가 (78D → 80D). actor 는 47D 유지.
+  critic_terms["deploy_delay_steps"] = ObservationTermCfg(
+    func=src_mdp.deploy_delay_steps,
+  )
+  critic_terms["deploy_action_noise_std"] = ObservationTermCfg(
+    func=src_mdp.deploy_action_noise_std,
+  )
+
   return cfg
 
 register_mjlab_task(

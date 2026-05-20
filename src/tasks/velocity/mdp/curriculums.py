@@ -172,6 +172,18 @@ class DeployDRCurriculum:
     except Exception:
       self._push_cfg = None
 
+    # delayed/noisy action term (있으면 level 로 delay_steps/noise_std 제어).
+    # set_delay_steps / set_noise_std 를 가진 term 만 (duck typing) → 기본
+    # JointPositionAction 이면 None 으로 두고 건너뜀.
+    self.action_term_name = p.get("action_term_name", "joint_pos")
+    self._action_term = None
+    try:
+      term = env.action_manager.get_term(self.action_term_name)
+      if hasattr(term, "set_delay_steps") and hasattr(term, "set_noise_std"):
+        self._action_term = term
+    except Exception:
+      self._action_term = None
+
     # 초기 level 즉시 적용 (학습 시작 시 DR 거의 꺼진 상태).
     self._apply_level()
 
@@ -193,8 +205,20 @@ class DeployDRCurriculum:
     if self._push_cfg is not None:
       pv = self.max_push * self.level
       self._push_cfg.params["velocity_range"] = {"x": (-pv, pv), "y": (-pv, pv)}
-    # Phase 5 critic obs (deploy_curriculum_level) 가 읽도록 env 에 노출.
+    # action delay/noise (delayed/noisy action term 이 있을 때만).
+    #   delay_steps = round(delay_max × level) → delay_max=1 이면 level<0.5→0, ≥0.5→1
+    #   noise_std   = noise_std_max × level
+    delay_steps = 0
+    noise_std = 0.0
+    if self._action_term is not None:
+      delay_steps = int(round(self._action_term.delay_max_steps * self.level))
+      noise_std = self._action_term.noise_std_max * self.level
+      self._action_term.set_delay_steps(delay_steps)
+      self._action_term.set_noise_std(noise_std)
+    # critic obs 가 읽도록 env 에 노출.
     self._env._deploy_dr_level = self.level
+    self._env._deploy_delay_steps = float(delay_steps)
+    self._env._deploy_action_noise_std = float(noise_std)
 
   def _state_dict(self):
     return {

@@ -87,3 +87,15 @@ def last_push_xy(env: ManagerBasedRlEnv) -> torch.Tensor:
     return torch.zeros((env.num_envs, 2), device=env.device)
   return buf
 
+
+def deploy_delay_steps(env: ManagerBasedRlEnv) -> torch.Tensor:
+  """현재 적용 중인 action delay step. [B, 1]. curriculum 이 env 에 기록."""
+  v = float(getattr(env, "_deploy_delay_steps", 0.0))
+  return torch.full((env.num_envs, 1), v, device=env.device)
+
+
+def deploy_action_noise_std(env: ManagerBasedRlEnv) -> torch.Tensor:
+  """현재 action noise std. [B, 1]. curriculum 이 env 에 기록."""
+  v = float(getattr(env, "_deploy_action_noise_std", 0.0))
+  return torch.full((env.num_envs, 1), v, device=env.device)
+
