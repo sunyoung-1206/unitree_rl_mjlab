@@ -4,6 +4,7 @@ from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.event_manager import EventTermCfg
 from mjlab.managers.observation_manager import ObservationTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
+from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.tasks.registry import register_mjlab_task
 import src.tasks.velocity.mdp as src_mdp
 from src.tasks.velocity.rl import VelocityFloorClippedRunner, VelocityOnPolicyRunner
@@ -191,6 +192,23 @@ def _go2_flat_deploydr_cfg(play: bool = False):
     "velocity_range": (0.0, 0.0),
     "asset_cfg": rj.params["asset_cfg"],
   }
+
+  # ── 배포용 command/termination 설정 ──────────────────────────────────────
+  # heading 100%: 모든 비정지 env 가 목표 방향을 바라보도록 wz 자동 계산 (deploy
+  # 참조와 일치). init yaw 는 위 reset_base 에서 0 고정.
+  twist = cfg.commands["twist"]
+  twist.rel_heading_envs = 1.0
+
+  # illegal_contact: base/hip/thigh/calf 중 하나라도 ≥1N 으로 지면 접촉 시 즉시 종료
+  # (발 geom 은 sensor 에서 제외됨). 임계 10N → 1N.
+  if "illegal_contact" in cfg.terminations:
+    cfg.terminations["illegal_contact"].params["force_threshold"] = 1.0
+
+  # fell_over: 방향 무관 단일 70° 대신 roll/pitch 분리 한계 (roll 0.8 / pitch 1.0 rad).
+  cfg.terminations["fell_over"] = TerminationTermCfg(
+    func=src_mdp.bad_orientation_roll_pitch,
+    params={"limit_roll": 0.8, "limit_pitch": 1.0},
+  )
 
   # ── Phase 3: DR curriculum (단일 스칼라 level, reward EMA 기반 자동 조정) ──
   # level 이 obs noise scale + push velocity range 에 곱해진다 (level=0.1 에서 시작,
