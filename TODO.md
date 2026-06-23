@@ -1,183 +1,452 @@
-# Task: Port deploy-style DR & foot_gait reward to mjlab Unitree-Go2-Flat
+#!/usr/bin/env python3
+"""
+Step 0 - Deployment interface contract inspector (rsl_rl / mjlab -> unitree_go2_deploy)
 
-## 목표
+What it does
+------------
+1. Locates the latest rsl_rl checkpoint (model_*.pt) in a run directory.
+2. Reads the *actor* network directly from the checkpoint state_dict and infers
+   - input dim  == num_obs
+   - output dim == num_actions
+   - hidden layer sizes / activation count
+3. Loads every serialized config it can find (params/*.yaml, *.json, *.pkl) and
+   greps for the fields that matter for deployment (scales, action_scale, PD
+   gains, default joint angles, joint order, decimation/dt, command ranges,
+   gait/phase, obs term ordering).
+4. Prints a side-by-side comparison against the `unitree_go2_deploy` runtime
+   contract and an alignment checklist with PASS / CHECK / FAIL markers.
 
-현재 mjlab(`unitree_rl_mjlab` 기반) 위에서 학습 중인 `Unitree-Go2-Flat` task에 sim-to-real 성능을 높이기 위한 변경을 가한다. 참조는 Isaac Lab 기반의 `unitree_go2_deploy_baseline_fullcode_lab` 레포의 DR / reward / curriculum 디자인. 단, 1:1 포팅이 아니라 mjlab API에 맞춰 의도를 옮긴다.
+It does NOT modify anything. It only reads and reports.
 
-핵심 문제: 현재 DR을 켜면 reward가 baseline 대비 크게 떨어진다. 참조 레포는 이 문제를 (1) DR 자체를 적게 흔들고 (2) DR 강도를 reward의 함수로 만드는 curriculum으로 해결한다. 이 두 가지 패턴을 가져온다.
+Usage
+-----
+    python inspect_policy_contract.py [RUN_DIR] [--checkpoint model_XXXX.pt] [--out report.json]
 
-## 컨텍스트와 제약
+Default RUN_DIR is the one you gave; override on the CLI if needed.
+"""
 
-- **베이스 task**: `Unitree-Go2-Flat` (mjlab)
-- **새 task ID**: `Unitree-Go2-Flat-DeployDR-v0` 같은 새 ID로 등록한다. 기존 task는 절대 건드리지 말 것. 변경은 모두 새 task 안에서만.
-- **시뮬레이터**: mjlab(MuJoCo + mujoco_warp). Isaac Lab API 호출이나 `isaaclab.*` import는 금지. mjlab의 `CurrTerm`, `ObsTerm`, `EventTerm`, `RewTerm`, `CommandTerm` 등 mjlab 네이티브 API만 사용.
-- **floor clip**: 참조 레포는 floor clip을 사용하지 않는다. 사용자 현재 셋업에 noclip/clip 이슈가 있으므로 **floor clip 비활성화 상태로 진행**. 관련 설정을 찾으면 `enable_floor_clip=False` 또는 동등한 옵션으로 둘 것.
-- **변경은 점진적으로**. 한 phase 끝날 때마다 짧은 학습(예: 200 iterations)으로 sanity check가 가능한 상태를 유지. 모든 phase를 한꺼번에 적용하지 말 것.
-- **mjlab의 기존 베이스라인 DR을 모두 끄거나 바꾸지 말 것**. 명시적으로 지시된 것만 수정.
+from __future__ import annotations
 
-## 작업 원칙
+import argparse
+import json
+import pickle
+import re
+import sys
+from pathlib import Path
 
-- 각 phase 시작 전에 **현재 코드를 읽고, 어떤 파일이 어떤 책임을 지는지 짧게 요약**한 뒤 다음 단계를 결정한다.
-- mjlab의 디렉토리 구조와 mjlab/unitree_rl_mjlab의 기존 task 등록 패턴(`register_mjlab_task` 등)을 먼저 파악한 후 작업한다.
-- 새 파일은 가능한 한 적게. 기존 mjlab/unitree_rl_mjlab의 task config / mdp module 패턴을 따른다.
-- 각 변경에 대해 **왜 이렇게 하는지 1-2줄 주석**을 코드에 남긴다 (한국어 OK). 나중에 비교 실험할 때 추적이 쉬워야 한다.
-- 학습 스크립트(`scripts/train.py`)나 RL 라이브러리(rsl_rl) 코드는 건드리지 말 것. task config / mdp / agents config 레벨에서만 변경.
+try:
+    import yaml
+except ImportError:
+    yaml = None
 
----
+import torch
 
-## Phase 0: 코드베이스 파악
 
-다음을 확인하고 상위에 짧게 보고:
+# --------------------------------------------------------------------------- #
+# Tolerant YAML loader
+# --------------------------------------------------------------------------- #
+# mjlab env.yaml uses `!!python/object:...`, `!!python/tuple`,
+# `!!python/name:...`, etc. PyYAML's `unsafe_load` should handle most, but
+# some module paths are unresolvable in this read-only context (we don't want
+# to import the training env just to inspect a checkpoint). Register tolerant
+# constructors so the load never fails: tuples → lists, names → fully-qualified
+# string, unknown objects → {"__class__": <name>, **state}.
+if yaml is not None:
+    class _TolerantLoader(yaml.UnsafeLoader):
+        pass
 
-1. `src/tasks/velocity/config/go2/`의 task 등록 구조 — `__init__.py`에서 `register_mjlab_task`가 어떻게 호출되는지, env_cfg 클래스가 어디 정의되어 있는지.
-2. `src/tasks/velocity/mdp/`의 모듈 분할 — observations, events, rewards, terminations, curriculums, velocity_command가 어떤 함수들을 export하는지.
-3. mjlab의 `ObsTerm`이 noise/scale을 어떻게 받는지 (Isaac Lab의 `Unoise` 같은 게 mjlab에서는 어떤 형태인지).
-4. mjlab에 asymmetric actor-critic (policy/critic obs group 분리)이 표준으로 지원되는지 — `ObsGroup` 두 개 만들어 정책/크리틱에 각각 할당하는 패턴이 가능한지.
-5. mjlab의 friction randomization 이벤트가 `num_buckets` 옵션을 받는지, per-env interval-update 메커니즘이 가능한지 확인.
+    def _tuple_ctor(loader, node):
+        return loader.construct_sequence(node, deep=True)
 
-이 단계에서는 **파일 변경 금지**. 파악 결과를 출력만 한다.
+    def _name_ctor(loader, suffix, node):
+        return f"<name:{suffix}>"
 
----
+    def _object_ctor(loader, suffix, node):
+        try:
+            state = loader.construct_mapping(node, deep=True)
+        except Exception:
+            try:
+                state = loader.construct_sequence(node, deep=True)
+            except Exception:
+                state = loader.construct_scalar(node)
+        out = {"__class__": suffix}
+        if isinstance(state, dict):
+            out.update(state)
+        else:
+            out["__state__"] = state
+        return out
 
-## Phase 1: 새 task 등록 (기존 Flat 그대로 복제)
+    _TolerantLoader.add_constructor("tag:yaml.org,2002:python/tuple", _tuple_ctor)
+    _TolerantLoader.add_multi_constructor("tag:yaml.org,2002:python/name:", _name_ctor)
+    _TolerantLoader.add_multi_constructor("tag:yaml.org,2002:python/object:", _object_ctor)
+    _TolerantLoader.add_multi_constructor("tag:yaml.org,2002:python/object/new:", _object_ctor)
+    _TolerantLoader.add_multi_constructor("tag:yaml.org,2002:python/object/apply:", _object_ctor)
 
-1. `Unitree-Go2-Flat`을 등록하는 패턴을 그대로 따라서 `Unitree-Go2-Flat-DeployDR-v0`를 등록.
-2. 이 시점에서는 **DR, reward, obs 모두 기존 Flat과 100% 동일**. ID와 클래스명만 다르다.
-3. mjlab 학습 명령으로 200 iterations 정도 굴려서 등록이 동작하는지 확인 (사용자가 직접 실행할 거니까 명령어만 알려준다).
 
-**Acceptance**: 새 task가 정상적으로 학습이 시작되고, episode reward 곡선이 기존 Flat과 동일한 추이를 보인다.
+# --------------------------------------------------------------------------- #
+# Deploy runtime contract
+# (from unitree_go2_deploy/configs/go2_deploy_baseline_teleop.yaml + sim_to_real.py)
+# --------------------------------------------------------------------------- #
+DEPLOY_CONTRACT = {
+    "num_obs": 47,
+    "num_actions": 12,
+    # ordered observation layout the deploy runner assumes (name, dim)
+    "obs_layout": [
+        ("base_ang_vel", 3),
+        ("projected_gravity", 3),
+        ("velocity_command", 3),
+        ("joint_pos_error", 12),
+        ("joint_vel", 12),
+        ("prev_action", 12),
+        ("gait_phase_sin_cos", 2),
+    ],
+    "scales": {
+        "ang_vel_scale": 0.25,
+        "dof_pos_scale": 1.0,
+        "dof_vel_scale": 0.05,
+        "action_scale": 0.25,
+        "cmd_scale": [2.0, 2.0, 0.25],
+    },
+    "pd": {"kp": 20.0, "kd": 0.5},
+    "control": {"simulation_dt": 0.005, "control_decimation": 4, "policy_hz": 50.0},
+    "default_angles": [0.1, 0.8, -1.5, -0.1, 0.8, -1.5, 0.1, 1.0, -1.5, -0.1, 1.0, -1.5],
+    # policy joint order used by deploy_mujoco; SDK order differs and is remapped
+    # via POLICY_TO_SDK_INDEX = [3,4,5,0,1,2,9,10,11,6,7,8] in sim_to_real.py
+    "joint_order_policy": [
+        "FL_hip", "FL_thigh", "FL_calf",
+        "FR_hip", "FR_thigh", "FR_calf",
+        "RL_hip", "RL_thigh", "RL_calf",
+        "RR_hip", "RR_thigh", "RR_calf",
+    ],
+    "cycle_sec": 0.6,  # gait phase period; run name "gait05" suggests you trained with 0.5
+}
 
----
+DEFAULT_RUN_DIR = "~/unitree_rl_mjlab/logs/rsl_rl/go2_velocity/2026-05-20_16-03-49_deploy_gait05_h100_seed42"
 
-## Phase 2: DR 조정 — 끄기와 줄이기
+# config keys worth surfacing for contract alignment
+GREP_KEYWORDS = [
+    "scale", "action_scale", "kp", "kd", "stiffness", "damping",
+    "default_joint", "default_angle", "init_state", "decimation", "dt",
+    "command", "ranges", "gait", "phase", "cycle", "clip", "num_obs",
+    "observation", "noise", "lin_vel", "ang_vel", "projected_gravity",
+]
 
-참조 레포는 mass / COM / PD gain / external force / encoder bias를 모두 흔들지 않는다. 사용자 현재 셋업에서 다음을 조정:
 
-**완전히 끄기 (`= None` 또는 해당 EventTerm 주석 처리)**:
-- `randomize_base_mass`
-- `randomize_link_mass`
-- `base_com` (또는 범위를 0으로)
-- `randomize_actuator_gains` (PD gain DR)
-- `randomize_motor_strength`
-- `randomize_V_bus`
-- `external_force_torque`
-- `encoder_bias`
-- `joint_pos_bias`
+# --------------------------------------------------------------------------- #
+# helpers
+# --------------------------------------------------------------------------- #
+def hr(title: str = "") -> None:
+    line = "=" * 78
+    print(f"\n{line}\n{title}\n{line}" if title else line)
 
-**조정**:
-- `push_robot`: interval을 `(1, 3)s` → `(5, 5)s`로. 각속도 부분 제거하고 linear만 ±0.5 유지.
-- `foot_friction`: range를 `(0.3, 1.25)`로 통일, **`num_buckets=64`로 startup 분포 안정화**. 추가로, 가능하다면 200 reset마다 per-env friction을 새로 뽑는 hybrid 메커니즘을 구현 (mjlab에 직접 지원이 없으면 우선 startup-only로 두고 TODO 코멘트만 남긴다).
-- `reset_base`: `pose_range xy=(0,0)`, `yaw=(0,0)`으로 고정. `velocity_range` 6축 ±0.5는 유지.
-- `reset_robot_joints`: position scale `(0.5, 1.5)`, velocity `0`.
 
-**Acceptance**:
-- Phase 1과 동일한 학습 명령으로 500 iterations 학습.
-- DR을 켠 상태에서 tracking reward가 baseline의 60% 이상 회복되는 것을 확인.
-- 만약 회복 안 되면 phase 2의 어떤 항목이 원인인지 ablation 표를 만들어 사용자에게 보고.
+def find_checkpoints(run_dir: Path):
+    ckpts = list(run_dir.glob("model_*.pt"))
 
----
+    def iter_num(p: Path) -> int:
+        m = re.search(r"model_(\d+)", p.stem)
+        return int(m.group(1)) if m else -1
 
-## Phase 3: DR Curriculum 도입
+    return sorted(ckpts, key=iter_num)
 
-참조 레포의 핵심. **단일 스칼라 `_deploy_curriculum_level ∈ [0, 1]`** 을 도입하고 reward EMA에 따라 자동으로 조정.
 
-1. mdp/curriculums.py에 `deploy_command_curriculum` 함수 추가:
-   - reset 시점마다 호출되는 `CurrTerm`.
-   - EMA 3개 유지: `tracking_ema`, `timeout_rate_ema`, `fall_rate_ema`. `ema_alpha=0.03`.
-   - **Level up**: `timeout_rate_ema >= 0.80` AND `tracking_ema >= 0.75` AND `fall_rate_ema <= 0.15`가 **4 reset 연속** 충족.
-   - **Level down**: `fall_rate_ema >= 0.25`가 **2 reset 연속**.
-   - **Step**: up `+0.01`, down `-0.03` (비대칭).
-   - **Cooldown**: 한 번 바뀌면 5 reset 동안은 변동 없음.
-   - **Init**: `level_init=0.1`, min/max `[0.0, 1.0]`.
-   - `tracking_ema`는 `tracking_lin_vel`과 `tracking_ang_vel` reward sum을 weight로 정규화해서 평균. 참조 코드의 정규화 식을 그대로 따른다.
-2. Level이 다음 값들을 곱하는 형태로 전파되도록 설정:
-   - obs noise scale: max 1.0 × level
-   - action noise std: max 0.1 × level
-   - action delay max steps: 0~1 step에서 round(0 + 1×level)
-   - push velocity range: 0 ~ 0.5 m/s에서 보간
-3. 위 4개 항목을 적용하려면 mjlab의 ObsTerm noise / Action noise / push range가 런타임에 변경 가능해야 한다. 안 되는 항목이 있으면 startup-only로 둬도 되지만, **최소한 obs noise와 push range는 curriculum 연동되어야 한다**.
+def inspect_actor(ckpt_path: Path) -> dict:
+    blob = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+    if isinstance(blob, dict) and "model_state_dict" in blob:
+        sd = blob["model_state_dict"]
+        extra = {k: blob[k] for k in ("iter", "infos") if k in blob}
+    elif isinstance(blob, dict) and "actor_state_dict" in blob:
+        # rsl_rl modern layout: nested actor / critic / optimizer
+        sd = blob["actor_state_dict"]
+        extra = {k: blob[k] for k in ("iter", "infos") if k in blob}
+    elif isinstance(blob, dict):
+        # could already be a raw state_dict
+        sd = blob
+        extra = {}
+    else:
+        raise RuntimeError(f"Unexpected checkpoint object: {type(blob)}")
 
-**Acceptance**:
-- 학습 시작 시 level=0.1로 DR 거의 꺼진 상태에서 시작.
-- 500 iterations 안에 level이 0.3 이상으로 올라가야 함 (정책이 학습되고 있다는 신호).
-- 학습 로그에 매 reset마다 `level`, `tracking_ema`, `fall_rate_ema`, `timeout_rate_ema`를 출력 (wandb나 tensorboard scalar로).
+    # collect 2D Linear weights that belong to the actor's policy MLP.
+    # Skip critic / value / obs_normalizer / distribution std parameters.
+    layer_re = re.compile(r"(?:^|\.)(?:actor|mlp|net|policy|trunk)\.(\d+)\.weight$")
+    skip_substrings = ("critic", "value", "normaliz", "distribution", "std")
+    indexed, fallback = [], []
+    for k, v in sd.items():
+        if not hasattr(v, "ndim") or v.ndim != 2:
+            continue
+        kl = k.lower()
+        if any(s in kl for s in skip_substrings):
+            continue
+        m = layer_re.search(k)
+        if m:
+            indexed.append((int(m.group(1)), k, tuple(v.shape)))
+        else:
+            fallback.append((k, tuple(v.shape)))
 
----
+    if indexed:
+        indexed.sort(key=lambda t: t[0])
+        layers = [(k, shp) for _, k, shp in indexed]
+    else:
+        layers = fallback  # best effort, dict insertion order
 
-## Phase 4: foot_gait reward 추가
+    info = {"checkpoint": str(ckpt_path), **extra}
+    if not layers:
+        info["error"] = "Could not locate actor Linear weights in state_dict."
+        info["state_dict_keys_sample"] = list(sd.keys())[:40]
+        return info
 
-mdp/rewards.py에 `foot_gait` 함수 추가:
+    in_dim = layers[0][1][1]
+    out_dim = layers[-1][1][0]
+    hidden = [shp[0] for _, shp in layers[:-1]]
+    info.update(
+        num_obs=int(in_dim),
+        num_actions=int(out_dim),
+        hidden_dims=hidden,
+        n_linear_layers=len(layers),
+        layer_shapes=[(k, shp) for k, shp in layers],
+        has_std=any("std" in k.lower() for k in sd.keys()),
+        has_obs_normalizer=any("normaliz" in k.lower() for k in sd.keys()),
+    )
+    return info
 
-```
-phase = (episode_length_buf * step_dt) % 0.6 / 0.6
-offsets = (0.0, 0.5, 0.5, 0.0)   # FL, FR, RL, RR (joint 순서 확인 필수)
-foot_phase = (phase + offset) % 1
-desired_stance = foot_phase < 0.56
-contact = (net_force_z > 1.0)
-gait_match = NOT(contact XOR desired_stance)
-reward = mean(gait_match) × (||cmd[:2]|| >= 0.1)
-```
 
-env_cfg의 rewards에 `weight=0.10`으로 추가. command_threshold는 `0.1`.
+def to_plain(obj, depth: int = 0):
+    if depth > 8:
+        return repr(obj)
+    if obj is None or isinstance(obj, (str, int, float, bool)):
+        return obj
+    if isinstance(obj, (list, tuple)):
+        return [to_plain(x, depth + 1) for x in obj]
+    if isinstance(obj, dict):
+        return {str(k): to_plain(v, depth + 1) for k, v in obj.items()}
+    if hasattr(obj, "to_dict"):
+        try:
+            return to_plain(obj.to_dict(), depth + 1)
+        except Exception:
+            pass
+    if hasattr(obj, "__dict__"):
+        return {k: to_plain(v, depth + 1) for k, v in vars(obj).items()
+                if not k.startswith("_")}
+    return repr(obj)
 
-**중요**:
-- foot 순서가 FL → FR → RL → RR 인지 확인. mjlab의 contact sensor body 순서가 다르면 offsets 순서도 맞춰 재배치.
-- mjlab의 contact sensor가 net force를 어떻게 노출하는지 확인 후 그에 맞춰 구현.
 
-**Acceptance**:
-- 학습 후 episode 한 번 시각화했을 때 4발이 대각선 trot으로 움직이는지 확인 (FL+RR 동시 stance, FR+RL 동시 swing).
-- ~~학습 reward에서 `foot_gait` 항목이 평균 0.6 이상으로 수렴.~~
-  → **0.55 로 하향 (2026-05-20)**: weight 를 0.5→0.10 으로 내리니 tracking reward 가
-    상승(track_lin 0.73→0.88, track_ang 0.84→0.94)했고, weight=0.10 인센티브로는
-    gait_match 가 ~0.58 에서 수렴. tracking 우선이 더 바람직하다는 판단으로 임계값 하향.
-    측정값 0.58 ≥ 0.55 → PASS.
+def load_all_configs(run_dir: Path) -> dict:
+    out = {}
+    if yaml is not None:
+        for p in list(run_dir.rglob("*.yaml")) + list(run_dir.rglob("*.yml")):
+            key = str(p.relative_to(run_dir))
+            try:
+                raw = yaml.load(p.read_text(), Loader=_TolerantLoader)
+            except Exception as e:
+                out[key] = f"<yaml error: {e}>"
+                continue
+            out[key] = to_plain(raw)
+    for p in run_dir.rglob("*.json"):
+        try:
+            out[str(p.relative_to(run_dir))] = json.loads(p.read_text())
+        except Exception as e:
+            out[str(p.relative_to(run_dir))] = f"<json error: {e}>"
+    for p in run_dir.rglob("*.pkl"):
+        try:
+            with open(p, "rb") as f:
+                out[str(p.relative_to(run_dir))] = to_plain(pickle.load(f))
+        except Exception as e:
+            out[str(p.relative_to(run_dir))] = f"<pickle error: {e} (needs training env on path)>"
+    return out
 
----
 
-## Phase 5: Asymmetric Critic Obs (선택, 가능하면)
+def flatten(obj, prefix="") -> dict:
+    items = {}
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            items.update(flatten(v, f"{prefix}{k}."))
+    elif isinstance(obj, (list, tuple)) and obj and isinstance(obj[0], (dict, list)):
+        for i, v in enumerate(obj):
+            items.update(flatten(v, f"{prefix}{i}."))
+    else:
+        items[prefix[:-1]] = obj
+    return items
 
-mjlab이 actor/critic obs group 분리를 지원하면 진행. 안 되면 skip하고 사용자에게 보고.
 
-Critic obs는 actor obs 47D + 다음 privileged 항목들:
-- `base_lin_vel` (3D, scaled ×2)
-- `feet_pos_z` (4D)
-- `feet_air_time` (4D)
-- `foot_contact` (4D)
-- `contact_forces` (12D, sign × log1p(|f|) 변환)
-- `friction_coeffs` (1D, 현재 env의 friction 값)
-- `deploy_curriculum_level` (1D)
-- `push_history_xy` (2D, 마지막 push velocity)
+def grep_config(flat: dict) -> dict:
+    hits = {}
+    for k, v in flat.items():
+        kl = k.lower()
+        if any(kw in kl for kw in GREP_KEYWORDS):
+            sv = repr(v)
+            hits[k] = sv if len(sv) <= 120 else sv[:117] + "..."
+    return hits
 
-총 ~80D. critic obs group은 `enable_corruption=False`로 (노이즈 안 섞음).
 
-**Acceptance**: critic value 추정의 explained variance가 actor=critic 셋업 대비 5%p 이상 개선.
+def find_obs_terms(plain) -> list | None:
+    """Recursively locate an observations group with an actor/policy subgroup and
+    return its ordered term names. mjlab uses `observations.actor.terms.<name>`;
+    older isaaclab configs use `observations.policy.<name>` directly."""
+    found = []
+    META = {
+        "concatenate_terms", "concatenate_dim", "enable_corruption",
+        "history_length", "flatten_history_dim", "nan_policy",
+        "nan_check_per_term",
+    }
 
----
+    def collect(group: dict) -> list:
+        # mjlab style: { terms: { name: cfg, ... }, ...meta }
+        if "terms" in group and isinstance(group["terms"], dict):
+            return [k for k in group["terms"].keys() if k not in META]
+        # legacy style: name keys directly under the group
+        return [k for k in group.keys() if k not in META]
 
-## Phase 6: Heading command 검토
+    def walk(o, in_obs: bool):
+        if isinstance(o, dict):
+            # Only treat actor/policy as obs term groups when nested inside
+            # an `observations` dict — otherwise the rsl_rl agent.yaml's
+            # `policy:` network-architecture block matches and pollutes the
+            # result.
+            if in_obs:
+                for key in ("actor", "policy"):
+                    sub = o.get(key)
+                    if isinstance(sub, dict):
+                        terms = collect(sub)
+                        if terms:
+                            found.append(terms)
+            for k, v in o.items():
+                walk(v, in_obs=(in_obs or k == "observations"))
+        elif isinstance(o, (list, tuple)):
+            for v in o:
+                walk(v, in_obs)
 
-현재 mjlab 기본은 `rel_heading_envs=0.25`. 참조 레포는 100% heading mode. 차이가 크다.
+    walk(plain, in_obs=False)
+    return found[0] if found else None
 
-1. 사용자 셋업에서 `rel_heading_envs` 값을 확인하고 보고만 한다.
-2. **이 값을 변경하지 말 것**. 사용자 추가 지시 대기.
 
----
+# --------------------------------------------------------------------------- #
+# report
+# --------------------------------------------------------------------------- #
+def mark(ok) -> str:
+    return {True: "PASS", False: "FAIL", None: "CHECK"}[ok]
 
-## 하지 말 것 (Hard constraints)
 
-- 기존 `Unitree-Go2-Flat` task를 수정하거나 삭제하지 말 것.
-- RL 라이브러리(rsl_rl) 자체를 수정하지 말 것.
-- mjlab core 코드(`mjlab/*`)를 수정하지 말 것. 모든 변경은 `src/` 하위 또는 `project/` 하위에서만.
-- `isaaclab` 어떤 모듈도 import하지 말 것.
-- floor clip 관련 설정을 켜지 말 것 (사용자 명시 지시).
-- 한 phase의 acceptance가 충족 안 된 상태로 다음 phase로 넘어가지 말 것.
-- PPO 하이퍼파라미터(lr, gamma, lambda, entropy coef, num_steps_per_env, batch size 등)는 건드리지 말 것. 참조 레포도 이 부분은 안 건드렸다.
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("run_dir", nargs="?", default=DEFAULT_RUN_DIR)
+    ap.add_argument("--checkpoint", default=None,
+                    help="specific model_*.pt filename inside run_dir")
+    ap.add_argument("--out", default=None, help="optional JSON report path")
+    args = ap.parse_args()
 
-## 마무리 보고
+    run_dir = Path(args.run_dir).expanduser().resolve()
+    hr("RUN DIRECTORY")
+    print(run_dir)
+    if not run_dir.is_dir():
+        sys.exit(f"[FATAL] run dir not found: {run_dir}")
 
-모든 phase 끝나면:
-- 변경된 파일 목록과 각 파일의 한 줄 요약
-- 새 task ID 학습 명령어
-- 각 phase의 acceptance 통과 여부
-- 알려진 이슈 / TODO 항목
-- 200 iterations 짧은 학습 로그 한 번 (사용자가 직접 안 돌렸을 경우)
+    print("\nfiles:")
+    for p in sorted(run_dir.rglob("*")):
+        if p.is_file():
+            print(f"  {p.relative_to(run_dir)}  ({p.stat().st_size} B)")
+
+    # ---- checkpoint / actor ------------------------------------------------ #
+    if args.checkpoint:
+        ckpt = run_dir / args.checkpoint
+    else:
+        ckpts = find_checkpoints(run_dir)
+        if not ckpts:
+            sys.exit("[FATAL] no model_*.pt checkpoint found in run dir.")
+        ckpt = ckpts[-1]
+
+    hr("ACTOR NETWORK (from checkpoint)")
+    actor = inspect_actor(ckpt)
+    print(f"checkpoint : {actor.get('checkpoint')}")
+    if "iter" in actor:
+        print(f"iteration  : {actor['iter']}")
+    if "error" in actor:
+        print(f"[WARN] {actor['error']}")
+        for k in actor.get("state_dict_keys_sample", []):
+            print(f"   key: {k}")
+    else:
+        print(f"num_obs (input)   : {actor['num_obs']}")
+        print(f"num_actions (out) : {actor['num_actions']}")
+        print(f"hidden_dims       : {actor['hidden_dims']}")
+        print(f"linear layers     : {actor['n_linear_layers']}")
+        print(f"has action std    : {actor['has_std']}")
+        print(f"has obs normalizer: {actor['has_obs_normalizer']}  "
+              f"(if True, normalization stats must be baked into the exported policy)")
+        print("layer shapes:")
+        for k, shp in actor["layer_shapes"]:
+            print(f"   {k:32s} {shp}")
+
+    # ---- configs ----------------------------------------------------------- #
+    hr("CONFIG FILES FOUND")
+    cfgs = load_all_configs(run_dir)
+    for name in cfgs:
+        print(f"  {name}")
+    if not cfgs:
+        print("  (none - rsl_rl usually writes params/env.yaml and params/agent.yaml;")
+        print("   if missing, re-export or point to the params/ dir manually)")
+
+    hr("CONFIG VALUES RELEVANT TO DEPLOY CONTRACT")
+    obs_terms = None
+    for name, cfg in cfgs.items():
+        if isinstance(cfg, str):  # error string
+            continue
+        flat = flatten(cfg)
+        hits = grep_config(flat)
+        if hits:
+            print(f"\n--- {name} ---")
+            for k in sorted(hits):
+                print(f"  {k} = {hits[k]}")
+        terms = find_obs_terms(cfg)
+        if terms and obs_terms is None:
+            obs_terms = terms
+
+    hr("OBSERVATION TERM ORDER (training)  vs  DEPLOY LAYOUT")
+    print("deploy expects (ordered):")
+    for n, d in DEPLOY_CONTRACT["obs_layout"]:
+        print(f"   {n:24s} dim {d}")
+    print(f"   ---> total {DEPLOY_CONTRACT['num_obs']}")
+    if obs_terms:
+        print("\ntraining policy obs terms (in config order):")
+        for t in obs_terms:
+            print(f"   {t}")
+        print("\n[!] Verify these map 1:1 and IN THE SAME ORDER as the deploy layout.")
+        print("    Order mismatches do not change num_obs but break the policy on deploy.")
+    else:
+        print("\n[!] Could not auto-extract obs term order from config.")
+        print("    Open params/env.yaml manually and read observations.policy term order.")
+
+    # ---- comparison + checklist ------------------------------------------- #
+    hr("ALIGNMENT CHECKLIST")
+    c = DEPLOY_CONTRACT
+    obs_ok = actor.get("num_obs") == c["num_obs"] if "num_obs" in actor else None
+    act_ok = actor.get("num_actions") == c["num_actions"] if "num_actions" in actor else None
+
+    print(f"[{mark(obs_ok)}] num_obs:     training={actor.get('num_obs')}  deploy={c['num_obs']}")
+    print(f"[{mark(act_ok)}] num_actions: training={actor.get('num_actions')}  deploy={c['num_actions']}")
+    print(f"[CHECK] obs scales must equal deploy YAML: {c['scales']}")
+    print(f"[CHECK] PD gains must equal deploy YAML:   kp={c['pd']['kp']} kd={c['pd']['kd']}")
+    print(f"[CHECK] default joint angles must equal:   {c['default_angles']}")
+    print(f"[CHECK] policy joint order must equal:     {c['joint_order_policy']}")
+    print(f"[CHECK] control rate: sim_dt={c['control']['simulation_dt']} "
+          f"decimation={c['control']['control_decimation']} -> {c['control']['policy_hz']} Hz")
+    print(f"[CHECK] gait cycle_sec: deploy default={c['cycle_sec']}  "
+          f"(verify against training: phase term `period` in observations.actor.terms.phase.params)")
+    print(f"[CHECK] action clipping / normalization baked into exported .pt")
+
+    print("\nNext: fix any FAIL, manually confirm every CHECK by editing the deploy")
+    print("YAML to match the printed training values, THEN move to Step 1 (export .pt).")
+
+    # ---- optional JSON ----------------------------------------------------- #
+    if args.out:
+        report = {
+            "run_dir": str(run_dir),
+            "actor": {k: v for k, v in actor.items() if k != "layer_shapes"},
+            "actor_layers": actor.get("layer_shapes"),
+            "obs_terms": obs_terms,
+            "deploy_contract": c,
+        }
+        Path(args.out).write_text(json.dumps(report, indent=2, default=str))
+        print(f"\nJSON report written to {args.out}")
+
+
+if __name__ == "__main__":
+    main()
