@@ -220,7 +220,19 @@ patch -p1 < /home/rbdo/unitree_rl_mjlab/vendor/mujoco_warp_3.6.0_patch/mujoco_wa
 
 PyPI 에 3.7.0 이 나오고 그게 설치되면, 우리 patch 는 라인이 안 맞아서 거부될 가능성이 높다. 그 경우 새 버전에 변경 사항을 **손으로 다시 옮겨야** 한다. 옮긴 결과를 `vendor/mujoco_warp_3.7.0_patch/` 같은 새 폴더에 보관하면 된다.
 
-지금은 3.6.0 에 고정해 둔 상태가 가장 안전.
+지금은 3.6.0 에 고정해 둔 상태가 가장 안전. `setup.py`의 `INSTALL_REQUIRES`에 `mujoco-warp==3.6.0`, `mujoco==3.6.0`을 명시적으로 박아뒀기 때문에(2026-07-13 추가), `pip install -e .`을 새로 돌려도 자동으로 이 버전이 깔린다 — 단, vendor 패치 복사(Step 2)는 여전히 수동으로 해줘야 한다.
+
+### Q4-1. warp-lang 버전도 문제가 될 수 있다
+
+mujoco_warp 뿐 아니라 `warp-lang`(NVIDIA의 GPU 커널 라이브러리, mujoco_warp가 그 위에서 돈다) 버전도 맞아야 한다. `mjlab==1.2.0` 패키지가 CUDA 그래프 지원 여부를 확인할 때 `wp.context.runtime.driver_version`을 읽는데, 이 심볼이 `warp-lang>=1.13`부터 제거됐다 (`wp._src.context.runtime`으로 이름만 바뀜, deprecated 경고와 함께 당분간은 유지됨).
+
+`mjlab`의 PyPI 메타데이터는 `warp-lang>=1.12.0`처럼 느슨하게만 걸려있어서, `pip install`은 아무 경고 없이 최신 버전(1.15.0 등)을 깔아버리고, 그러면 학습 스크립트가 다음 에러로 죽는다:
+
+```
+AttributeError: module 'warp' has no attribute 'context'
+```
+
+그래서 `setup.py`에 `warp-lang==1.12.1`도 같이 고정해 뒀다. 이 조합(mujoco-warp==3.6.0, mujoco==3.6.0, warp-lang==1.12.1)은 2026-07-11 컴퓨터 이전 시 GPU 커플링 학습 스크립트(`Unitree-Go2-Flat-Coupled-Electric`)를 5 iteration 실제로 돌려서 확인된 조합이다.
 
 ### Q5. 다른 사람이 이 프로젝트를 clone 했을 때 무엇을 해야 하나?
 
@@ -243,7 +255,8 @@ clone 직후 상태:
 conda create -n mjlab python=3.11
 conda activate mjlab
 
-# (2) 의존성 설치 (mujoco_warp 도 이 단계에서 PyPI 원본이 설치됨)
+# (2) 의존성 설치 — setup.py에 mujoco-warp==3.6.0, mujoco==3.6.0, warp-lang==1.12.1이
+#     고정되어 있어서 이 버전 그대로 PyPI 원본이 설치됨 (원본 = 아직 패치 안 된 상태)
 cd /home/rbdo/unitree_rl_mjlab
 pip install -e .
 
