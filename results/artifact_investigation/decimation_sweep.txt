@@ -1,0 +1,3 @@
+decimation physics_dt policy_dt slope intercept std_dI |ω|>3
+50 0.400 20.00 +0.1665 +0.0143 1.187 13.5%
+200 0.100 20.00 +0.4057 +0.0331 2.959 13.5%

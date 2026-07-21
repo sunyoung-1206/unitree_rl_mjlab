@@ -1,0 +1,33 @@
+[2026-04-28 09:57:31] === Video pipeline start ===
+[2026-04-28 09:57:31] checkpoint: logs/rsl_rl/go2_methoda_electric/2026-04-27_23-25-13_act-pos_pdt20ms_phyDt0p1ms_tauDec4/model_1999.pt
+[2026-04-28 09:57:31] out: results/demag_rerun_schur_trained  (videos enabled)
+[2026-04-28 09:57:31]     [START] pd_nominal
+[2026-04-28 09:58:35]     [OK]    pd_nominal
+[2026-04-28 09:58:35]     [START] methoda_healthy
+[2026-04-28 10:06:54]     [OK]    methoda_healthy
+[2026-04-28 10:06:54]     [START] methoda_FL_0.8
+[2026-04-28 10:14:07]     [OK]    methoda_FL_0.8
+[2026-04-28 10:14:07]     [START] methoda_FL_0.6
+[2026-04-28 10:22:16]     [OK]    methoda_FL_0.6
+[2026-04-28 10:22:16]     [START] methoda_FL_0.4
+[2026-04-28 10:29:30]     [OK]    methoda_FL_0.4
+[2026-04-28 10:29:30]     [START] methoda_FR_0.8
+[2026-04-28 10:36:46]     [OK]    methoda_FR_0.8
+[2026-04-28 10:36:46]     [START] methoda_FR_0.6
+[2026-04-28 10:44:19]     [OK]    methoda_FR_0.6
+[2026-04-28 10:44:19]     [START] methoda_FR_0.4
+[2026-04-28 10:51:08]     [OK]    methoda_FR_0.4
+[2026-04-28 10:51:08]     [START] methoda_RL_0.8
+[2026-04-28 10:59:09]     [OK]    methoda_RL_0.8
+[2026-04-28 10:59:09]     [START] methoda_RL_0.6
+[2026-04-28 11:07:52]     [OK]    methoda_RL_0.6
+[2026-04-28 11:07:52]     [START] methoda_RL_0.4
+[2026-04-28 11:15:49]     [OK]    methoda_RL_0.4
+[2026-04-28 11:15:49]     [START] methoda_RR_0.8
+[2026-04-28 11:22:54]     [OK]    methoda_RR_0.8
+[2026-04-28 11:22:54]     [START] methoda_RR_0.6
+[2026-04-28 11:31:08]     [OK]    methoda_RR_0.6
+[2026-04-28 11:31:08]     [START] methoda_RR_0.4
+[2026-04-28 11:40:13]     [OK]    methoda_RR_0.4
+[2026-04-28 11:40:13] === Video pipeline done ===
+[2026-04-28 11:40:13] Videos: results/demag_rerun_schur_trained/videos/   Data: results/demag_rerun_schur_trained/data/

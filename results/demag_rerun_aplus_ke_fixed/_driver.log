@@ -1,0 +1,19 @@
+[START] pd_nominal
+[START] aplus_healthy
+[START] aplus_FL_0.8
+[START] aplus_FL_0.6
+=== batch 1 done ===
+[START] aplus_FL_0.4
+[START] aplus_FR_0.8
+[START] aplus_FR_0.6
+[START] aplus_FR_0.4
+=== batch 2 done ===
+[START] aplus_RL_0.8
+[START] aplus_RL_0.6
+[START] aplus_RL_0.4
+[START] aplus_RR_0.8
+=== batch 3 done ===
+[START] aplus_RR_0.6
+[START] aplus_RR_0.4
+=== batch 4 done ===
+All 14 runs finished.

@@ -163,16 +163,55 @@ def unitree_go2_flat_methoda_electric_env_cfg(
   play: bool = False,
   use_velocity_action: bool = False,
 ) -> ManagerBasedRlEnvCfg:
-  """Go2 flat terrain + Method A electric motor (BE integrator + BE Schur + BE Force RHS).
+  """Go2 flat terrain + Method A electric motor, vanilla observations.
 
-  Physics dt = 0.1ms, policy dt = 20ms (decimation=200).
-  PD/tau target 재계산 주기 = 5ms → policy dt 안에서 4회 업데이트 (pd_substeps=50).
-  dynprm[4] = 0 → β_int = β_imp = 1/(1+h/τ) on patched mjwarp.
+  method="A": BE integrator + BE Schur + BE Force RHS, dynprm[4]=0
+  (β_int = β_imp = 1/(1+h/τ) on patched mjwarp). Actor obs stays at the
+  velocity_env_cfg default (history_length=1, no delay) — mirrors how
+  MethodAPlus-Electric (A+) and MethodB-Electric are left vanilla, so all
+  three methods have one directly-comparable baseline.
 
-  Real-world motor parameters (Kt 0.26 N·m/A, V_bus 30.8 V, R 0.66 Ω,
-  L 83 µH) via ``GO2_METHODA_ARTICULATION``. Observation actor group uses
-  history_length=5 with per-term delay 0..4 steps on base_ang_vel /
-  projected_gravity / joint_pos / joint_vel.
+  Physics dt = 0.1ms, policy dt = 20ms (decimation=200). Real-world motor
+  parameters (Kt 0.26 N·m/A, V_bus 30.8 V, R 0.66 Ω, L 83 µH) via
+  ``GO2_METHODA_ARTICULATION``.
+
+  For the obs history=5 / per-term delay variant used as Phase 1 of the
+  two-phase sim2real curriculum, use
+  ``unitree_go2_flat_methoda_electric_obshistory_env_cfg``.
+
+  Args:
+    play: play(=eval) 모드 여부.
+    use_velocity_action: True 시 JointVelocity 액션으로 교체.
+  """
+  cfg = unitree_go2_flat_env_cfg(play=play)
+  cfg.scene.entities = {"robot": get_go2_methoda_robot_cfg()}
+
+  cfg.sim.mujoco.timestep = 0.0001   # 0.1ms
+  cfg.decimation = 200                # 0.1ms × 200 = 20ms policy dt
+
+  if use_velocity_action:
+    cfg.actions = {
+      "joint_vel": JointVelocityActionCfg(
+        entity_name="robot",
+        actuator_names=(".*",),
+        scale=5.0,
+        use_default_offset=True,
+      )
+    }
+
+  return cfg
+
+
+def unitree_go2_flat_methoda_electric_obshistory_env_cfg(
+  play: bool = False,
+  use_velocity_action: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """Go2 flat terrain + Method A electric motor, obs history=5 + per-term delay.
+
+  Same actuator physics as ``unitree_go2_flat_methoda_electric_env_cfg``
+  (method="A", BE integrator + BE Schur + BE Force RHS, dynprm[4]=0), plus
+  an actor-observation override: history_length=5 with per-term delay 0..4
+  steps on base_ang_vel / projected_gravity / joint_pos / joint_vel.
 
   Baseline domain randomization (foot_friction 0.3..1.2, encoder_bias,
   base_com, push_robot) is inherited from velocity_env_cfg. For the extended
@@ -232,14 +271,14 @@ def unitree_go2_flat_methoda_electric_sim2real_env_cfg(
     * external_force_torque        interval 8~12 s, F ±30 N, τ ±3 N·m on base
 
   Intended for the "Phase 2" half of a two-phase sim2real curriculum: train
-  ``Unitree-Go2-Flat-MethodA-Electric`` (no extra DR) for ~2000 iter first,
-  then resume into this task for another 2000 iter.
+  ``Unitree-Go2-Flat-MethodA-Electric-ObsHistory`` (no extra DR) for ~2000
+  iter first, then resume into this task for another 2000 iter.
 
   Args:
     play: play(=eval) 모드 여부.
     use_velocity_action: True 시 JointVelocity 액션으로 교체.
   """
-  cfg = unitree_go2_flat_methoda_electric_env_cfg(
+  cfg = unitree_go2_flat_methoda_electric_obshistory_env_cfg(
     play=play, use_velocity_action=use_velocity_action,
   )
 
@@ -316,7 +355,7 @@ def unitree_go2_flat_methoda_electric_playpd_env_cfg(
   play: bool = False,
   use_velocity_action: bool = False,
 ) -> ManagerBasedRlEnvCfg:
-  """Fast play env for the MethodA-Electric trained policy.
+  """Fast play env for the MethodA-Electric-ObsHistory trained policy.
 
   Same obs/action space as the training task (so the trained checkpoint loads
   with ``strict=True``), but swaps the electric-motor actuator for builtin PD
@@ -330,7 +369,7 @@ def unitree_go2_flat_methoda_electric_playpd_env_cfg(
 
   Intended for ``scripts/play.py`` only — do not train with this task.
   """
-  cfg = unitree_go2_flat_methoda_electric_env_cfg(
+  cfg = unitree_go2_flat_methoda_electric_obshistory_env_cfg(
     play=play, use_velocity_action=use_velocity_action,
   )
   cfg.scene.entities = {"robot": get_go2_robot_cfg()}

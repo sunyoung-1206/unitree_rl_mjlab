@@ -1,0 +1,19 @@
+[START] pd_nominal
+[START] methoda_healthy
+[START] methoda_FL_0.8
+[START] methoda_FL_0.6
+=== batch 1 done ===
+[START] methoda_FL_0.4
+[START] methoda_FR_0.8
+[START] methoda_FR_0.6
+[START] methoda_FR_0.4
+=== batch 2 done ===
+[START] methoda_RL_0.8
+[START] methoda_RL_0.6
+[START] methoda_RL_0.4
+[START] methoda_RR_0.8
+=== batch 3 done ===
+[START] methoda_RR_0.6
+[START] methoda_RR_0.4
+=== batch 4 done ===
+All 14 runs finished.

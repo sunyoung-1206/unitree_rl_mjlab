@@ -1,0 +1,38 @@
+[2026-04-27 23:24:44] === Pipeline start ===
+[2026-04-27 23:24:44] Task: Unitree-Go2-Flat-MethodA-Electric  |  iters: 2000  |  out: results/demag_rerun_schur_trained
+[2026-04-27 23:24:44] [1/3] Launching training...
+[2026-04-27 23:24:44]     existing runs in logs/rsl_rl/go2_methoda_electric: 3
+[2026-04-28 08:25:41] [1/3] Training finished.
+[2026-04-28 08:25:41]     latest run dir: logs/rsl_rl/go2_methoda_electric/2026-04-27_23-25-13_act-pos_pdt20ms_phyDt0p1ms_tauDec4
+[2026-04-28 08:25:41] [2/3] Selected checkpoint: logs/rsl_rl/go2_methoda_electric/2026-04-27_23-25-13_act-pos_pdt20ms_phyDt0p1ms_tauDec4/model_1999.pt
+[2026-04-28 08:25:41] [3/3] Running 14-condition demag matrix...
+[2026-04-28 08:25:41]     [START] pd_nominal
+[2026-04-28 08:26:52]     [OK]    pd_nominal
+[2026-04-28 08:26:52]     [START] methoda_healthy
+[2026-04-28 08:34:14]     [OK]    methoda_healthy
+[2026-04-28 08:34:14]     [START] methoda_FL_0.8
+[2026-04-28 08:41:34]     [OK]    methoda_FL_0.8
+[2026-04-28 08:41:34]     [START] methoda_FL_0.6
+[2026-04-28 08:48:27]     [OK]    methoda_FL_0.6
+[2026-04-28 08:48:27]     [START] methoda_FL_0.4
+[2026-04-28 08:56:19]     [OK]    methoda_FL_0.4
+[2026-04-28 08:56:19]     [START] methoda_FR_0.8
+[2026-04-28 09:03:48]     [OK]    methoda_FR_0.8
+[2026-04-28 09:03:48]     [START] methoda_FR_0.6
+[2026-04-28 09:10:06]     [OK]    methoda_FR_0.6
+[2026-04-28 09:10:06]     [START] methoda_FR_0.4
+[2026-04-28 09:16:28]     [OK]    methoda_FR_0.4
+[2026-04-28 09:16:28]     [START] methoda_RL_0.8
+[2026-04-28 09:22:45]     [OK]    methoda_RL_0.8
+[2026-04-28 09:22:45]     [START] methoda_RL_0.6
+[2026-04-28 09:29:06]     [OK]    methoda_RL_0.6
+[2026-04-28 09:29:06]     [START] methoda_RL_0.4
+[2026-04-28 09:35:26]     [OK]    methoda_RL_0.4
+[2026-04-28 09:35:26]     [START] methoda_RR_0.8
+[2026-04-28 09:41:53]     [OK]    methoda_RR_0.8
+[2026-04-28 09:41:53]     [START] methoda_RR_0.6
+[2026-04-28 09:49:48]     [OK]    methoda_RR_0.6
+[2026-04-28 09:49:48]     [START] methoda_RR_0.4
+[2026-04-28 09:57:30]     [OK]    methoda_RR_0.4
+[2026-04-28 09:57:30] === Pipeline done ===
+[2026-04-28 09:57:30] Data: results/demag_rerun_schur_trained/data/   Logs: results/demag_rerun_schur_trained/logs/

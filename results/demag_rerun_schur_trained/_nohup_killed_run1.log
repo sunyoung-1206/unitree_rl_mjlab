@@ -1,0 +1,4 @@
+[2026-04-27 22:51:24] === Pipeline start ===
+[2026-04-27 22:51:24] Task: Unitree-Go2-Flat-MethodA-Electric  |  iters: 2000  |  out: results/demag_rerun_schur_trained
+[2026-04-27 22:51:24] [1/3] Launching training...
+[2026-04-27 22:51:24]     existing runs in logs/rsl_rl/go2_methoda_electric: 2

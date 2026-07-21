@@ -14,6 +14,7 @@ from .env_cfgs import (
   unitree_go2_flat_coupled_electric_env_cfg,
   unitree_go2_flat_aplus_tloop_electric_env_cfg,
   unitree_go2_flat_methoda_electric_env_cfg,
+  unitree_go2_flat_methoda_electric_obshistory_env_cfg,
   unitree_go2_flat_methoda_electric_sim2real_env_cfg,
   unitree_go2_flat_methoda_electric_playpd_env_cfg,
   unitree_go2_flat_methodb_electric_env_cfg,
@@ -57,9 +58,14 @@ register_mjlab_task(
 # Phase 1: DR/reward/obs 모두 기존 Flat(_go2_flat_pd_cfg)과 100% 동일.
 #          단 floor clip 은 미적용 (참조 레포 미사용 + 사용자 지시) →
 #          VelocityOnPolicyRunner 사용.
+#
+# base_cfg_fn: DR/reward/curriculum 로직은 액추에이터 모델과 독립적이므로,
+# 기본 builtin-PD(_go2_flat_pd_cfg) 대신 전기모터 기반 env_cfg(예:
+# unitree_go2_flat_methoda_electric_env_cfg)를 넘기면 같은 DeployDR 기법을
+# 그 solving 방식 위에 그대로 적용할 수 있다.
 # ─────────────────────────────────────────────────────────────────────────────
-def _go2_flat_deploydr_cfg(play: bool = False):
-  cfg = _go2_flat_pd_cfg(play=play)
+def _go2_flat_deploydr_cfg(play: bool = False, base_cfg_fn=_go2_flat_pd_cfg):
+  cfg = base_cfg_fn(play=play)
 
   # ── Phase 2: deploy-style DR (끄기 + 줄이기) ──────────────────────────────
   # 참조 deploy baseline 은 mass / COM / PD gain / 외력 / encoder bias 를 흔들지
@@ -216,6 +222,26 @@ register_mjlab_task(
 )
 
 
+# DeployDR-Gait05 위에 같은 DR 기법을 그대로 두고, 액추에이터 solving만
+# builtin PD → Method A 전기모터(method="A", implicit Euler/BE Schur, 바닐라
+# obs)로 교체한 변종. base_cfg_fn 하나만 바뀌므로 DR/reward/curriculum 로직은
+# _go2_flat_deploydr_cfg 를 100% 재사용한다.
+def _go2_flat_methoda_deploydr_gait05_cfg(play: bool = False):
+  cfg = _go2_flat_deploydr_cfg(
+    play=play, base_cfg_fn=unitree_go2_flat_methoda_electric_env_cfg,
+  )
+  cfg.rewards["foot_gait"].weight = 0.50
+  return cfg
+
+register_mjlab_task(
+  task_id="Unitree-Go2-Flat-MethodA-Electric-DeployDR-Gait05-v0",
+  env_cfg=_go2_flat_methoda_deploydr_gait05_cfg(),
+  play_env_cfg=_go2_flat_methoda_deploydr_gait05_cfg(play=True),
+  rl_cfg=unitree_go2_ppo_runner_cfg(),
+  runner_cls=VelocityOnPolicyRunner,
+)
+
+
 # No-DR clean baseline: DeployDR-v0 와 reward / foot_gait(0.10) / critic obs /
 # reset 설정 전부 동일하되 DR 만 끈 통제 변종. 차이는:
 #   - deploy_dr curriculum level 을 0.0 에 고정 (level_max=0) → obs noise 0, push 0
@@ -239,8 +265,12 @@ register_mjlab_task(
   runner_cls=VelocityOnPolicyRunner,
 )
 
+# Vanilla method A+ (filterexact/ZOH-consistent Schur, dynprm[4]=1). Actor obs
+# is untouched (history_length=1, no delay) — same tier as MethodB-Electric and
+# MethodA-Electric-Vanilla below, so all three methods have one directly-
+# comparable baseline task.
 register_mjlab_task(
-  task_id="Unitree-Go2-Flat-Coupled-Electric",
+  task_id="Unitree-Go2-Flat-MethodAPlus-Electric",
   env_cfg=unitree_go2_flat_coupled_electric_env_cfg(),
   play_env_cfg=unitree_go2_flat_coupled_electric_env_cfg(play=True),
   rl_cfg=unitree_go2_ppo_runner_cfg(),
@@ -262,9 +292,9 @@ register_mjlab_task(
 _METHODA_ACTION_TYPE = "position"  # or "velocity"
 _methoda_use_vel = _METHODA_ACTION_TYPE == "velocity"
 
-# Base electric task: real motor params (Kt/Ke/R/L/V_bus) + obs delay/history=5,
-# but no extra sim2real DR events on top of the velocity_env_cfg baseline DR.
-# Train this for ~2000 iterations as Phase 1 of the two-phase sim2real curriculum.
+# Vanilla method A (BE-consistent Schur, dynprm[4]=0). Actor obs is untouched
+# (history_length=1, no delay) — same tier as MethodAPlus-Electric and
+# MethodB-Electric, so all three methods have one directly-comparable baseline.
 register_mjlab_task(
   task_id="Unitree-Go2-Flat-MethodA-Electric",
   env_cfg=unitree_go2_flat_methoda_electric_env_cfg(
@@ -273,16 +303,33 @@ register_mjlab_task(
   play_env_cfg=unitree_go2_flat_methoda_electric_env_cfg(
     play=True, use_velocity_action=_methoda_use_vel,
   ),
+  rl_cfg=unitree_go2_ppo_runner_cfg(),
+  runner_cls=VelocityOnPolicyRunner,
+)
+
+# Same as above, plus obs delay/history=5 (base_ang_vel/projected_gravity/
+# joint_pos/joint_vel, 0..4 step lag) — no extra sim2real DR events on top of
+# the velocity_env_cfg baseline DR. Train this for ~2000 iterations as Phase 1
+# of the two-phase sim2real curriculum.
+register_mjlab_task(
+  task_id="Unitree-Go2-Flat-MethodA-Electric-ObsHistory",
+  env_cfg=unitree_go2_flat_methoda_electric_obshistory_env_cfg(
+    use_velocity_action=_methoda_use_vel,
+  ),
+  play_env_cfg=unitree_go2_flat_methoda_electric_obshistory_env_cfg(
+    play=True, use_velocity_action=_methoda_use_vel,
+  ),
   rl_cfg=unitree_go2_methoda_electric_ppo_runner_cfg(
     action_type=_METHODA_ACTION_TYPE,
   ),
   runner_cls=VelocityOnPolicyRunner,
 )
 
-# sim2real-DR-v1 expansions added on top of the base electric task: V_bus,
+# sim2real-DR-v1 expansions added on top of MethodA-Electric-ObsHistory: V_bus,
 # actuator gains, motor strength, base/link mass, joint_pos_bias, external
-# force/torque + widened foot_friction. Phase 2 of the curriculum: resume the
-# base task's final checkpoint into this task for another ~2000 iter.
+# force/torque + widened foot_friction. Phase 2 of the curriculum: resume
+# MethodA-Electric-ObsHistory's final checkpoint into this task for another
+# ~2000 iter.
 register_mjlab_task(
   task_id="Unitree-Go2-Flat-MethodA-Electric-Sim2Real",
   env_cfg=unitree_go2_flat_methoda_electric_sim2real_env_cfg(
@@ -297,9 +344,10 @@ register_mjlab_task(
   runner_cls=VelocityOnPolicyRunner,
 )
 
-# PlayPD: fast visualization task for any MethodA-Electric checkpoint (base or
-# Sim2Real). Uses builtin PD actuator + 5 ms physics so play runs in real time,
-# keeps obs delay/history=5 and action scaling so checkpoints load.
+# PlayPD: fast visualization task for any MethodA-Electric-ObsHistory checkpoint
+# (or Sim2Real, which builds on it). Uses builtin PD actuator + 5 ms physics so
+# play runs in real time, keeps obs delay/history=5 and action scaling so
+# checkpoints load.
 register_mjlab_task(
   task_id="Unitree-Go2-Flat-MethodA-Electric-PlayPD",
   env_cfg=unitree_go2_flat_methoda_electric_playpd_env_cfg(
