@@ -13,6 +13,12 @@ This is an uncommitted, in-place edit to `go2_constants.py` (not a
 separate override path). To restore the nominal datasheet value, set
 `Kt`/`Ke` back to `0.26` in that file.
 
+> **2026-08-12 업데이트** — 위 문단은 이 실행 시점(2026-07-24)의 상태를 적은
+> 것이고, 지금은 더 이상 맞지 않는다. `Kt`/`Ke` 는 일회성 이탈이 아니라 실험에
+> 따라 조정하는 값이며, 0.14 가 현재 기본값으로 `go2_constants.py` 에 커밋됐다.
+> "0.26 으로 원복" 은 이제 해당되지 않는다. 값의 이력과 함께 재계산해야 하는
+> 파생량은 `_GO2_MOTOR_PHYS` 위 주석을 참고할 것.
+
 ## Everything else is identical to the 260716 run (wandb run
 `p113vzbv`, `logs/rsl_rl/go2_methoda_deploydr_gait05/`, started
 2026-07-16T04:05:35Z):

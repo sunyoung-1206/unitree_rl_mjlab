@@ -146,13 +146,26 @@ def get_go2_robot_cfg() -> EntityCfg:
 _COUPLED_SUBSTEPS = 200  # decimation=200 (0.1ms × 200 = 20ms policy dt)
 _PD_RECOMPUTE = 50       # PD 재계산 주기: 5ms / 0.1ms = 50 physics steps
 
-# Shared real-world motor physical parameters for the Unitree Go2.
-# Sourced from the Go2 motor datasheet — used by every Method variant
-# (Coupled/A+, A, B, A+ tloop) so the underlying physics stays consistent.
-# `method` is intentionally NOT included here so each variant can override.
+# Shared motor physical parameters for the Unitree Go2.
+# Used by every Method variant (Coupled/A+, A, B, A+ tloop) so the underlying
+# physics stays consistent. `method` is intentionally NOT included here so each
+# variant can override.
+#
+# Kt/Ke 는 고정 상수가 아니라 실험에 따라 조정하는 값이다. Kt == Ke 로 항상 함께
+# 움직인다. 이력: 0.128 (R=0.3) → 0.26 (R=0.66, 2026-05-18, 데이터시트 실측값)
+# → 0.14 (2026-07-24~, 현재 기본값). 앞으로도 바뀔 수 있다.
+#
+# 이 값을 바꾸면 아래도 함께 다시 계산해야 한다:
+#   - demag 이론 기울기 상수 Ke*gr/R  (0.128/0.3 → 2.7008, 0.26/0.66 → 2.4936,
+#     0.14/0.66 → 1.3427)
+#   - demag 주입 스크립트가 들고 있는 nominal 사본. 절대값으로 주입하므로 어긋나면
+#     라벨과 실제 심각도가 조용히 달라진다 (2026-07-23 실제 발생,
+#     results/demag_gait05_RR_hl_vx03/NOTE_kt_bug.md 참고)
+#   - 정격 전류 한계 effort_limit / (Kt*gr)
+# tau_e = L/R 은 Kt/Ke 와 무관하므로 영향 없음.
 _GO2_MOTOR_PHYS = dict(
-  Kt=0.26,       # [N·m/A]
-  Ke=0.26,       # [V·s/rad_motor], physically Ke == Kt
+  Kt=0.14,       # [N·m/A]           실험에 따라 조정 (위 주석의 이력 참고)
+  Ke=0.14,       # [V·s/rad_motor]   physically Ke == Kt, 항상 Kt 와 같은 값
   R=0.66,        # [Ω] (= 1.5 × R_line, Delta wiring)
   L=83e-6,       # [H] (= 0.5 × L_line, Delta wiring) — τ_e = L/R ≈ 126 µs
   gear_ratio=6.33,
